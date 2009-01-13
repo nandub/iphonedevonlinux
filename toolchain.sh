@@ -185,7 +185,9 @@ plist_key() {
 		/<\/dict>/ { sub(/[a-zA-Z0-9]*\/$/, "", path);}
 		/<((string)|(integer))>.*<\/((string)|(integer))>/ {
 			if(lastKey == "'"${PLIST_KEY}"'" && path == "'"${PLIST_PATH}"'") {
-				sub(/^.*<\/?((string)|(integer))>/,"", $0); print;
+				sub(/^.*<((string)|(integer))>/,"", $0);
+				sub(/<\/((string)|(integer))>.*$/,"", $0);
+				print $0;
 			}
 		}'
 }
@@ -528,10 +530,9 @@ toolchain_download_darwin_sources() {
 			--post-data="theAccountName=${APPLE_ID}&theAccountPW=${APPLE_PASSWORD}&1.Continue.x=1&1.Continue.y=1&theAuxValue=" \
 			--no-check-certificate -O - "https://daw.apple.com${LOGIN_URL}" | awk '{
 		if(match($0, /<FONT COLOR="#ff0000" SIZE=1>([^<]*)<\/FONT>/)) {
-			$0=substr($0, RSTART, RLENGTH);
-			sub(/<FONT COLOR="#ff0000" SIZE=1>/, "", $0);
-			sub(/<\/FONT>/, "", $0);
-			print $0
+			$0 = substr($0, RSTART, RLENGTH);
+			sub(/<\/?FONT.*>/, "", $0);
+			print $0;
 		}
 	}')
 
@@ -550,7 +551,6 @@ toolchain_download_darwin_sources() {
 	wget --quiet --load-cookies=cookies.tmp \
 		--keep-session-cookies --post-data="APSLrev=2.0&querystr=&acceptBtn=Yes%2C+I+Accept" \
 		-O - "http://www.opensource.apple.com/cgi-bin/apslreg.cgi" &> /dev/null
-	
 
 	# Get what we're here for
 	message_status "Attempting to download tool sources..."
@@ -917,30 +917,33 @@ case $1 in
 		;;
 
 	*)
+		# Shows usage information to the user
 		BOLD=$(tput bold)
 		ENDF=$(tput sgr0)
-		TAB="\t"
 		echo    "toolchain.sh [ all | headers | darwin_sources | firmware | build | clean ]"
 		echo
-		echo -e "    ${BOLD}all${ENDF}"
-		echo -e "    ${TAB}Perform all steps in order: headers, darwin_sources,"
-		echo -e "    ${TAB}firmware, build and clean."
+		echo    "    ${BOLD}all${ENDF}"
+		echo -e "    \tPerform all steps in order: headers, darwin_sources,"
+		echo -e "    \tfirmware, build and clean."
 		echo
-		echo -e "    ${BOLD}headers${ENDF}"
-		echo -e "    ${TAB}Extract headers from an iPhone SDK dmg."
+		echo    "    ${BOLD}headers${ENDF}"
+		echo -e "    \tExtract headers from an iPhone SDK dmg provided by"
+		echo -e "    \tthe user in <toolchain>/files/<sdk>.dmg."
 		echo
-		echo -e "    ${BOLD}darwin_sources${ENDF}"
-		echo -e "    ${TAB}Retrieve required Apple OSS components."
+		echo    "    ${BOLD}darwin_sources${ENDF}"
+		echo -e "    \tRetrieve required Apple OSS components using a valid"
+		echo -e "    \tApple ID and password."
 		echo
-		echo -e "    ${BOLD}firmware${ENDF}"
-		echo -e "    ${TAB}Downloads and extracts iPhone an firmware image for the"
-		echo -e "    ${TAB}toolchain version."
+		echo    "    ${BOLD}firmware${ENDF}"
+		echo -e "    \tDownloads (optional) and extracts iPhone an firmware"
+		echo -e "    \timage for the specified toolchain version."
 		echo
-		echo -e "    ${BOLD}build${ENDF}"
-		echo -e "    ${TAB}Builds acquires and builds the toolchain sources."
+		echo    "    ${BOLD}build${ENDF}"
+		echo -e "    \tAcquires and builds the toolchain sources."
 		echo
-		echo -e "    ${BOLD}clean${ENDF}"
-		echo -e "    ${TAB}Remove source files, extracted dmgs and ipsws and temporary"
-		echo -e "    ${TAB}files, leaving only the toolchain."
+		echo    "    ${BOLD}clean${ENDF}"
+		echo -e "    \tRemove source files, extracted dmgs and ipsws and"
+		echo -e "    \ttemporary files, leaving only the compiled toolchain"
+		echo -e "    \tand headers."
 		;;
 esac
