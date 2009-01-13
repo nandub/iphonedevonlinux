@@ -22,8 +22,8 @@ index 1c3e1cf..cb81edb 100644
  #define __IPHONE_2_0     20000  
  #define __IPHONE_NA      99999  /* not available */
 
---- AvailabilityInternal.h.orig	2009-01-08 16:58:40.000000000 +1100
-+++ AvailabilityInternal.h	2009-01-08 17:09:49.000000000 +1100
+--- /usr/include/AvailabilityInternal.h.orig	2009-01-08 16:58:40.000000000 +1100
++++ /usr/include/AvailabilityInternal.h	2009-01-08 17:09:49.000000000 +1100
 @@ -51,11 +51,6 @@
      #ifndef __IPHONE_OS_VERSION_MAX_ALLOWED
          #define __IPHONE_OS_VERSION_MAX_ALLOWED     __IPHONE_2_2
@@ -36,7 +36,6 @@ index 1c3e1cf..cb81edb 100644
      
      // set up internal macros (up to 2.0)
       #if __IPHONE_OS_VERSION_MAX_ALLOWED < __IPHONE_2_0
-
 @@ -105,6 +101,27 @@
          #define __AVAILABILITY_INTERNAL__IPHONE_2_1_DEP__IPHONE_2_2    __AVAILABILITY_INTERNAL_DEPRECATED
          #define __AVAILABILITY_INTERNAL__IPHONE_2_2_DEP__IPHONE_2_2    __AVAILABILITY_INTERNAL_DEPRECATED

@@ -471,9 +471,10 @@ extract_firmware() {
     message_status "Unzipping `basename $FW_RESTORE_SYSTEMDISK`..."
     unzip -d "${TMP_DIR}" -o "${FW_FILE}" "${FW_RESTORE_SYSTEMDISK}"
 
+    message_status "Decrypting firmware image..."
     if [ ! "$DECRYPTION_KEY_SYSTEM" ] ; then
-        message_status "We need the decryption key for `basename $FW_RESTORE_SYSTEMDISK`."
-        message_status "I'm going to try to fetch it from $IPHONEWIKI_KEY_URL...."
+        echo "We need the decryption key for `basename $FW_RESTORE_SYSTEMDISK`."
+        echo "I'm going to try to fetch it from $IPHONEWIKI_KEY_URL...."
         DECRYPTION_KEY_SYSTEM=$( wget --quiet -O - $IPHONEWIKI_KEY_URL | awk '
             /name=\"'"${FW_PRODUCT_VERSION}"'.*'"${FW_BUILD_VERSION}"'/ { found = 1; }
             /<p>.*$/ && found { sub(/.*<p>/, "", $0); print toupper($0); exit; }' )
@@ -481,14 +482,14 @@ extract_firmware() {
             error "Sorry, no decryption key for system partition found!"
             exit 1;
         fi
-        message_status "I found it!"
+        echo "I found it!"
     fi
 
-    message_status "Starting vfdecrypt with decryption key $DECRYPTION_KEY_SYSTEM..."
+    echo "Starting vfdecrypt with decryption key: $DECRYPTION_KEY_SYSTEM"
     cd "${TMP_DIR}"
     $VFDECRYPT -i"${FW_RESTORE_SYSTEMDISK}" \
                    -o"${FW_RESTORE_SYSTEMDISK}.decrypted"\
-                   -k"$DECRYPTION_KEY_SYSTEM" > /dev/null
+                   -k"$DECRYPTION_KEY_SYSTEM" &> /dev/null
 
     if [ ! -s "${FW_RESTORE_SYSTEMDISK}.decrypted" ]; then
     	error "Decryption of `basename $FW_RESTORE_SYSTEMDISK` failed!"
@@ -763,7 +764,7 @@ toolchain_build() {
     
     message_status "Applying patches..."
 
-    if [ ! -a "${HERE}/include.diff" ]; then
+    if [ ! -r "${HERE}/include.diff" ]; then
     	error "Missing include.diff! This file is required to merge the OSX and iPhone SDKs."
     	exit 1
     fi
@@ -806,7 +807,7 @@ toolchain_build() {
     svn co http://iphone-dev.googlecode.com/svn/branches/odcctools-9.2-ld "${cctools}"
 
     message_status "Building cctools-iphone..."
-    echo "Build progress logged to: toolchain/bld/cctools-iphone/make.log"
+    cecho bold "Build progress logged to: toolchain/bld/cctools-iphone/make.log"
     mkdir -p "${build}/cctools-iphone"
     cd "${build}/cctools-iphone"
     CFLAGS=-m32 LDFLAGS=-m32 "${cctools}"/configure \
@@ -819,7 +820,7 @@ toolchain_build() {
     fi
 
     message_status "Building gcc-4.2-iphone..."
-    echo "Build progress logged to: toolchain/bld/gcc-4.2-iphone/make.log"
+    cecho bold "Build progress logged to: toolchain/bld/gcc-4.2-iphone/make.log"
     mkdir -p "${build}"
     cd "${build}"
     mkdir gcc-4.2-iphone
@@ -884,9 +885,10 @@ case $1 in
 
 		# Make sure we have the Apple ID and password
 		if [ "$APPLE_ID" == "" ] || [ "$APPLE_PASSWORD" == "" ]; then
-		echo "You're going to need an Apple Developer Connection ID and password."
-		read -p "Apple ID: " APPLE_ID
-		read -s -p "Password: " APPLE_PASSWORD
+			echo "You're going to need an Apple Developer Connection ID and password."
+			read -p "Apple ID: " APPLE_ID
+			read -s -p "Password: " APPLE_PASSWORD
+			echo
 		fi
 
 		if [ "$APPLE_ID" != "" ] && [ "$APPLE_PASSWORD" != "" ]; then
