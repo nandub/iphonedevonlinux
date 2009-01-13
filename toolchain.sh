@@ -81,7 +81,6 @@ IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain"
 FILES_DIR="${IPHONEDEV_DIR}/files"
 SDKS_DIR="${IPHONEDEV_DIR}/sdks"
 TOOLS_DIR="${IPHONEDEV_DIR}/tools"
-XPWN_DIR="${TOOLS_DIR}/xpwn"
 MIG_DIR="${TOOLS_DIR}/mig"
 TMP_DIR="${IPHONEDEV_DIR}/tmp"
 MNT_DIR="${FILES_DIR}/mnt"
@@ -91,7 +90,7 @@ IPHONE_SDK="iphone_sdk_for_iphone_os_${TOOLCHAIN_VERSION}_*_final.dmg"
 IPHONE_SDK_DMG="${FILES_DIR}/${IPHONE_SDK}"
 IPHONE_SDK_IMG="${FILES_DIR}/iphone_sdk.img"
 
-DMG="${TOOLS_DIR}/dmg"
+DMG="${TOOLS_DIR}/dmg2img"
 VFDECRYPT="${TOOLS_DIR}/vfdecrypt"
 MIG="${MIG_DIR}/mig"
 
@@ -99,9 +98,8 @@ MACOSX_PKG="${MNT_DIR}/Packages/MacOSX10.5.pkg"
 IPHONE_PKG="${MNT_DIR}/Packages/iPhoneSDKHeadersAndLibs.pkg"
 
 # Tools
-XPWN_GIT="git://github.com/planetbeing/xpwn.git"
+DMG2IMG="http://vu1tur.eu.org/tools/download.pl?dmg2img-1.3.tar.gz"
 MIG_URL="ftp://ftp.gnu.org/gnu/mig/mig-1.3.tar.gz"
-VFDECRYPT_URL="http://iphone-elite.googlecode.com/files/vfdecrypt-linux.tar.gz"
 IPHONEWIKI_KEY_URL="http://www.theiphonewiki.com/wiki/index.php?title=VFDecrypt_Keys"
 
 # Download information for Apple's open source components
@@ -197,88 +195,42 @@ plist_key() {
 		}'
 }
 
-# Builds the XPWN dmg decryption tools, which we will use later to convert dmgs to
+# Builds dmg2img decryption tools and vfdecrypt, which we will use later to convert dmgs to
 # images, so that we can mount them.
-build_xpwn_dmg() {
-    [ ! -d $TOOLS_DIR ] && mkdir -p $TOOLS_DIR
-    [ -x $DMG ] && return
+build_tools() {
+    mkdir -p $TOOLS_DIR
+    mkdir -p $TMP_DIR
+    ([ -x $DMG ] && [ -x $VFDECRYPT ]) && return
 
-    # Check for xpwn and try to update it if we're working off the git
-    # repo that should have been extracted earlier
-    if [ -d $XPWN_DIR ] ; then
-        if [ -d "$XPWN_DIR/.git" ] ; then
-            message_status "Updating xpwn git..."
-            if cd "$XPWN_DIR" && ! git pull $XPWN_GIT master; then
-            	error "Failed to pull xpwn git. Check errors."
-            	exit 1
-            fi
-        fi
-    else 
-        message_status "Checking out xpwn git..."
-        if ! git clone $XPWN_GIT $XPWN_DIR; then
-        	error "Failed to clone xpwn git. Check errors."
-        	exit 1
-        fi
-    fi
-
-    cd $XPWN_DIR
-
-    message_status "Building xpwn's dmg-to-iso tool..."
-    [ -r Makefile ] && make clean
-    if cmake CMakeLists.txt && cd dmg && make; then
-	message_status "Build finished."
-	if cp dmg $DMG; then
-		# Get rid of the xpwn stuff, we don't need it anymore
-		message_status "Removing xpwn remnants."
-		cd $HERE && rm -Rf $XPWN_DIR
-	else
-		error "Failed to copy xpwn's dmg-to-iso tool to ${DMG}."
-		exit 1
-	fi
-    else
-    	error "Failed to make xpwn. Check errors."
+    cd $TMP_DIR
+    if ! wget -O - $DMG2IMG | tar -zx; then
+    	error "Failed to get and extract dmg2img-1.3. Check errors."
     	exit 1
     fi
-}
-
-# Retrieve and build vfdecrypt, which is used for decrypting ipsw firmware images
-build_vfdecrypt() {
-    if [ ! -x $VFDECRYPT ] ; then
-    	message_status "Downloading and building vfdecrypt..."
-    	mkdir -p $TOOLS_DIR && cd $TOOLS_DIR
-        
-        local VFDECRYPT_TGZ=`basename $VFDECRYPT_URL`
-        
-        # Try to locate the tool source or ask the user if we can't find it. As a last
-        # resort we can download it.
-        if [ ! -r $VFDECRYPT_TGZ ]; then
-        	echo "I can't find the VFDecrypt source ($VFDECRYPT_TGZ)."
-        	read -p "Do you have it (y/N)? "
-        	if [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ]; then
-        		read -p "Location of VFDecrypt: " VFDECRYPT_TGZ
-        	else
-        		read -p "Do you want me to download it (Y/n)? "
-        		[ "$REPLY" != "no" ] && [ "$REPLY" != "n" ] && wget $VFDECRYPT_URL
-        	fi
-        fi
-        
-        if [ -r $VFDECRYPT_TGZ ]; then
-        	tar xfzv $VFDECRYPT_TGZ vfdecrypt.c
-        	if ! gcc -o vfdecrypt vfdecrypt.c -lssl; then
-        		error "Failed to build VFdecrypt! Check errors."
-        		exit 1
-        	fi
-        	rm $VFDECRYPT_TGZ vfdecrypt.c
-        else
-        	error "I can't find the VFdecrypt source or executable."
-        	error "Building the toolchain cannot proceed"
-        	exit 1
-        fi
+    
+    pushd dmg2img-1.3
+    
+    if ! make; then
+    	error "Failed to make dmg2img-1.3. Check errors."
+    	exit
     fi
+    
+    mv vfdecrypt dmg2img $TOOLS_DIR
+    popd
+    rm -Rf dmg2img-1.3
 }
 
-convert_dmg_to_img() {
-    [ ! -x $DMG ] && build_xpwn_dmg
+toolchain_extract_headers() {
+    [ ! -x $DMG ] && build_tools
+    mkdir -p ${MNT_DIR}
+    mkdir -p ${SDKS_DIR}
+    mkdir -p ${TMP_DIR}
+    
+    # Make sure we don't already have these
+    if [ -d "${SDKS_DIR}/iPhoneOS${TOOLCHAIN_VERSION}.sdk" ] && [ -d "${SDKS_DIR}/MacOSX10.5.sdk" ]; then
+    	echo "SDKs seem to already be extracted."
+    	return
+    fi
 
     # Look for the DMG and ask the user if is isn't findable. It's probably possible
     # to automate the download, however I don't feel it's appropriate at this time considering
@@ -305,24 +257,12 @@ convert_dmg_to_img() {
 
     if [ ! -r $IPHONE_SDK_IMG ] ; then
     	message_status "Converting `basename $IPHONE_SDK_DMG` to img format..."
-        $DMG extract $IPHONE_SDK_DMG $IPHONE_SDK_IMG > /dev/null
+        $DMG -s $IPHONE_SDK_DMG $IPHONE_SDK_IMG
         if [ ! -s $IPHONE_SDK_IMG ]; then
         	error "Failed to extract `basename $IPHONE_SDK_DMG`!"
         	rm $IPHONE_SDK_IMG
         	exit 1
         fi
-    fi
-}
-
-extract_headers() {
-    mkdir -p ${MNT_DIR}
-    mkdir -p ${SDKS_DIR}
-    mkdir -p ${TMP_DIR}
-    
-    # Make sure we don't already have these
-    if [ -d "${SDKS_DIR}/iPhoneOS${TOOLCHAIN_VERSION}.sdk" ] && [ -d "${SDKS_DIR}/MacOSX10.5.sdk" ]; then
-    	echo "SDKs seem to already be extracted."
-    	return
     fi
 
     # Inform the user why we suddenly need their password
@@ -375,8 +315,7 @@ extract_headers() {
 # If we can't find the firmware file we try to download it from the
 # apple download urls above.
 extract_firmware() {
-   [ ! -x $VFDECRYPT ] && build_vfdecrypt
-   [ ! -x $DMG ] && build_xpwn_dmg
+   ([ ! -x $VFDECRYPT ] || [ ! -x $DMG ]) && build_tools
    mkdir -p $FW_DIR
    mkdir -p $MNT_DIR
    mkdir -p $TMP_DIR
@@ -493,7 +432,7 @@ extract_firmware() {
 
     if [ ! -r ${FW_SYSTEM_DMG} ] ; then
     	message_status "Extracting decrypted dmg..."
-        $DMG extract "${FW_RESTORE_SYSTEMDISK}.decrypted" ${FW_SYSTEM_DMG} > /dev/null
+        $DMG -s "${FW_RESTORE_SYSTEMDISK}.decrypted" ${FW_SYSTEM_DMG}
     fi
 
     message_status "Trying to mount `basename ${FW_SYSTEM_DMG}`..."
@@ -588,11 +527,6 @@ toolchain_download_darwin_sources() {
 	message_status "Finished downloading!"
 
 	rm cookies.tmp
-}
-
-toolchain_extract_headers() {
-    convert_dmg_to_img
-    extract_headers
 }
 
 toolchain_system_files() {
@@ -880,10 +814,10 @@ case $1 in
 	all)
 		check_environment
 		export TOOLCHAIN_CHECKED=1
-		./toolchain.sh headers
-		./toolchain.sh darwin_sources
-		./toolchain.sh firmware
-		./toolchain.sh build
+		( ./toolchain.sh headers && \
+		./toolchain.sh darwin_sources && \
+		./toolchain.sh firmware && \
+		./toolchain.sh build ) || exit 1
 		
 		read -p "Do you want to clean up the source files used to build the toolchain? (y/N)"
 		([ "$REPLY" == "y" ] || [ "$REPLY" == "yes" ]) && ./toolchain.sh clean
