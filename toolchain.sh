@@ -43,8 +43,10 @@ IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain"
 # 	./toolchain.sh firmware
 # 	./toolchain.sh darwin_sources
 # 	./toolchain.sh build
+#	./toolchain.sh classdump (optional)
 #    OR simply run:
 #	./toolchain.sh all
+#
 #
 # Actions
 # ======================
@@ -77,6 +79,10 @@ IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain"
 #   Starts the build process decribed by saurik in
 #   http://www.saurik.com/id/4. This script uses the same paths under
 #   $IPHONEDEV_DIR/toolchain/
+#
+# ./toolchain.sh classdump
+#   Runs classdump on a selected iPhone over SSH in order to generate useable
+#   Objective-C headers for (mostly) private frameworks.
 
 FILES_DIR="${IPHONEDEV_DIR}/files"
 SDKS_DIR="${IPHONEDEV_DIR}/sdks"
@@ -599,6 +605,7 @@ toolchain_build() {
         error "I couldn't find an iPhone filesystem at: ${FW_DIR}/current"
         exit 1
     fi
+    
 
     if [ -d $TOOLCHAIN/sys ] && [[ `ls -A $TOOLCHAIN/sys | wc -w` > 0 ]]; then
 	    echo "It looks like the iPhone filesystem has already been copied."
@@ -974,7 +981,7 @@ case $1 in
 		# Shows usage information to the user
 		BOLD=$(tput bold)
 		ENDF=$(tput sgr0)
-		echo    "toolchain.sh [ all | headers | darwin_sources | firmware | build | clean ]"
+		echo    "toolchain.sh <action>"
 		echo
 		echo    "    ${BOLD}all${ENDF}"
 		echo -e "    \tPerform all steps in order: headers, darwin_sources,"
@@ -989,11 +996,15 @@ case $1 in
 		echo -e "    \tApple ID and password."
 		echo
 		echo    "    ${BOLD}firmware${ENDF}"
-		echo -e "    \tDownloads (optional) and extracts iPhone an firmware"
+		echo -e "    \tDownload (optional) and extract iPhone an firmware"
 		echo -e "    \timage for the specified toolchain version."
 		echo
 		echo    "    ${BOLD}build${ENDF}"
-		echo -e "    \tAcquires and builds the toolchain sources."
+		echo -e "    \tAcquire and build the toolchain sources."
+		echo
+		echo    "    ${BOLD}classdump${ENDF}"
+		echo -e "    \tGenerates Objective-C headers using public and private"
+		echo -e "    \tframeworks retrieved from an iPhone."
 		echo
 		echo    "    ${BOLD}clean${ENDF}"
 		echo -e "    \tRemove source files, extracted dmgs and ipsws and"
