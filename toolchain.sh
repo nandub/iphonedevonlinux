@@ -372,7 +372,9 @@ toolchain_extract_firmware() {
     if [ ! -r "$FW_FILE" ] ; then
     	echo "I can't find the firmware image for iPhone/iPod Touch $TOOLCHAIN_VERSION."
     	read -p "Do you have it (y/N)?"
-    	if [ "$REPLY" != "y" ] && [ "$REPLY" != "yes" ]; then 
+    	if [ "$REPLY" != "y" ] && [ "$REPLY" != "yes" ]; then #  wiki
+
+
 	    	read -p "Do you want me to download it (Y/n)?"
 	    	if [ "$REPLY" != "n" ] && [ "$REPLY" != "no" ]; then
 			APPLE_DL_URL=$(cat ${HERE}/firmware.list | awk '$1 ~ /'"^${TOOLCHAIN_VERSION}$"'/ && $2 ~ /^iPhone\(3G\)$/ { print $3; }')
@@ -462,11 +464,9 @@ toolchain_extract_firmware() {
     message_status "`basename $FW_RESTORE_SYSTEMDISK` decrypted!"
 
     FW_VERSION_DIR="${FW_DIR}/${FW_PRODUCT_VERSION}_${FW_BUILD_VERSION}"
-    FW_SYSTEM_DIR="${FW_VERSION_DIR}"
     FW_SYSTEM_DMG="${TMP_DIR}/root_system.dmg"
 
     mkdir -p "${FW_VERSION_DIR}"
-    mkdir -p "${FW_SYSTEM_DIR}"
 
     if [ ! -r ${FW_SYSTEM_DMG} ] ; then
     	message_status "Extracting decrypted dmg..."
@@ -484,9 +484,8 @@ toolchain_extract_firmware() {
     
     cd "${MNT_DIR}"
     message_status "Copying required components of the firmware..."
-    sudo cp -Ra * "${FW_SYSTEM_DIR}"
+    sudo cp -Ra * "${FW_VERSION_DIR}"
     sudo chown -R `id --user`:`id --group` $FW_SYSTEM_DIR
-    cd ${HERE}
     message_status "Unmounting..."
     sudo umount "${MNT_DIR}"
     
@@ -752,7 +751,7 @@ toolchain_build() {
 	mkdir -p CoreServices
 	cp -a "${LEOPARD_SDK_LIBS}"/CoreServices.framework/Versions/A/Headers/* CoreServices
 	for service in "${LEOPARD_SDK_LIBS}"/CoreServices.framework/Versions/A/Frameworks/*.framework; do
-		mkdir -p "$(basename $service .framework)"cp -af "${apple}"/xnu-1228.7.58/osfmk/* . cp -af "${apple}"/xnu-1228.7.58/bsd/* . 
+		mkdir -p "$(basename $service .framework)"
 		cp -a $service/Versions/A/Headers/* "$(basename $service .framework)"
 	done
 
@@ -773,7 +772,7 @@ toolchain_build() {
 	mkdir -p wtf/unicode/icu
 	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/wtf/*.h wtf
 	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/wtf/unicode/*.h wtf/unicode
-	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-466.1/wtf/unicode/icu/*.h wtf/unicode/icu
+	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/wtf/unicode/icu/*.h wtf/unicode/icu
 
 	mkdir unicode
 	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/icu/unicode/*.h unicode
@@ -927,9 +926,9 @@ case $1 in
 		check_environment
 		export TOOLCHAIN_CHECKED=1
 		( ./toolchain.sh headers && \
-		./toolchain.sh darwin_sources && \
-		./toolchain.sh firmware && \
-		./toolchain.sh build ) || exit 1
+		  ./toolchain.sh darwin_sources && \
+		  ./toolchain.sh firmware && \
+		  ./toolchain.sh build ) || exit 1
 		
 		read -p "Do you want to clean up the source files used to build the toolchain? (y/N)"
 		([ "$REPLY" == "y" ] || [ "$REPLY" == "yes" ]) && ./toolchain.sh clean
