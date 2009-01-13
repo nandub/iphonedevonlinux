@@ -251,113 +251,22 @@ check_dirs() {
     done
 }
 
-# This is a hack of a HACK. I need some bash script
-# to read Apples .plist files. I found some in IPOD
-# developement and I decided to write something small
-# without big dependencies to "parse" them.
-# 
-# Examples:
-# 
-# Keys
-#
-# defaults DeviceClass "$DATA" &&  DEVICECLASS="$Return_Val"
-# defaults ProductVersion "$DATA"  &&  PRODUCTVERSION="$Return_Val"
-# defaults ProductBuildVersion "$DATA" && BUILDVERSION="$Return_Val"
-# defaults "RestoreRamDisks User" "$DATA" && RESTORERAMDISK="$Return_Val"
-# 
-# Arrays
-#
-# defaults "SupportedProductTypeIDs DFU [] " " $DATA" && SUPPORTED="$Return_Val"
-# defaults "DeviceMap [0]" "$DATA" && DEVICEARRAY="$Return_Val"
-# defaults "MGPlay [2] []" "$DATA" && MGPLAY="$Return_Val"
-# MGPLAYARRAY=(${Return_Array[@]})
-#
-# Attention: if you use an array index you get back
-# the value. The value maybe an <dict>, <array> structure as string
-# or a scalar if the value is a <string> or <integer>.
-# 
-# Using [] you get back the whole array in string representation with
-# § as delimiter and in $Return_Array you get a bash array with
-# the elements.
-# 
-# The awk code is nearly unmaintainable. Sorry.
+# Takes a plist string and does a very basic lookup of a particular key value,
+# given a key name an XPath style path to the key in terms of dict entries
+plist_key() {
+	local PLIST_PATH="$1"
+	local PLIST_KEY="$2"
+	local PLIST_DATA="$3"
 
-defaults() {
-    local keys="$1"
-    local data="$2"
-
-    for k in $keys ; do
-        defaults_parser "$k" "$data" && data=$Return_Val
-    done
-}
-
-defaults_parser() {
-    local key="$1"
-    local data="$2"
-    local command_line
-    local scalar_mode
-    local mode
-    local Return_Val=""
-
-    if [ "${key#\[*\]}" = "$key" ] ; then 
-        mode="scalar"
-    else
-        mode="array"
-        index="${key#\[}"
-        index="${index#\]}"
-        if [ "$index" = "" ] ; then
-            index=0
-        else 
-            index=$((index+1))
-        fi
-    fi
-
-    if [ "$mode" = "scalar" ] ; then
-        command_line="
-        ((level == 0) && (tags)) { exit; } \
-        /<key>$key<\/key>/ { foundkey = NR; next; } \
-        (foundkey  && (! level) && /<(string)|(integer)>.*<\\/(string)|(integer)>/) \
-            { tags = \$1; singlevalue = 1; exit; } \
-        /(<array>)|(<dict>)/ && (foundkey > 1) \
-            { level+=1; tags = tags \$1 \"\\n\"; next; } \
-        /(<\\/array>)|(<\\/dict>)/ && (foundkey > 1) \
-            { level-=1; tags = tags \$1 \"\\n\"; next; } \
-        level > 0 && foundkey \
-            { tags = tags \$1 \"\\n\"; next; } \
-        END {   if(singlevalue) { split(tags,t,\"<\"); split(t[2],t,\">\"); print t[2]; } \
-                else            { print tags  }\
-        }
-        "
-    else
-        command_line="
-        /<\\/array>/ && level == 1 { exit; } \
-        /<array>/ && (level == 0)  { level = 1; arrayindex = 1; next; } \
-        /(<string>)|(<integer>).*(<\\/string)>)|(<\\/integer>)/ && level == 1 \
-            { split(\$1,t,\"<\"); split(t[2],t,\">\"); value[arrayindex] = t[2]; arrayindex+=1; next; }  \
-        /(<array>)|(<dict>)/  \
-            { level+=1; value[arrayindex] = value[arrayindex] \$1 \"\\n\"; next; } \
-        /(<\\/array>)|(<\\/dict>)/ \
-            { level-=1; value[arrayindex] = value[arrayindex] \$1 \"\\n\"; if(level==1) arrayindex+=1;  next; } \
-        level > 1 \
-            { value[arrayindex] = value[arrayindex] \$1 \"\\n\"; next;   } \
-        END { if($index == 0) { out = \"\"; for(idx in value) {  if(idx > 1) out = out \"§\"; out = out value[idx]; } print out; }  \
-              else { print value[$index]; } \
-        } \
-        "
-    fi
-
-    Return_Val=`echo "$data" | awk "$command_line"`
-
-    if [ "$mode" = "array" -a "$index" = 0 ] ; then
-        OLDIFS=$IFS
-        IFS="§"
-        local index=0
-        for value in $Return_Val ; do
-            Return_Array[$index]="$value"
-            index=$((index+1))
-        done
-        IFS=$OLDIFS
-    fi
+	cat $PLIST_DATA | awk '
+		/<key>.*<\/key>/ { sub(/^.*<key>/, "", $0); sub(/<\/key>.*$/, "", $0); lastKey = $0; }
+		/<dict>/ { path = path lastKey "/"; }
+		/<\/dict>/ { sub(/[a-zA-Z0-9]*\/$/, "", path);}
+		/<((string)|(integer))>.*<\/((string)|(integer))>/ {
+			if(lastKey == "'"${PLIST_KEY}"'" && path == "'"${PLIST_PATH}"'") {
+				sub(/^.*<((string)|(integer))>/,"", $0); sub(/<\/((string)|(integer))>.*$/,"", $0); print $0;
+			}
+		}'
 }
 
 build_tools() {
@@ -562,7 +471,7 @@ extract_firmware() {
 			else 
 			    message_status "Downloading from: $APPLE_DL_URL"
 			    cd $TMP_DIR
-			    wget ${APPLE_DL_URL}
+			    wget $APPLE_DL_URL
 			    mv $FIRMWARE $FW_DIR
 			fi
 		else
@@ -584,25 +493,24 @@ extract_firmware() {
     
     cd "$FW_DIR"
     unzip -d "${TMP_DIR}" -o "${FW_FILE}" Restore.plist
-    RESTORE_DATA="`cat "${TMP_DIR}/Restore.plist"`"
 
-    defaults DeviceClass "$RESTORE_DATA" &&  FM_DEVICE_CLASS="$Return_Val"
-    defaults ProductVersion "$RESTORE_DATA" && FW_PRODUCT_VERSION="$Return_Val"
-    defaults ProductBuildVersion "$RESTORE_DATA" && FW_BUILD_VERSION="$Return_Val"
-    defaults "RestoreRamDisks User" "$RESTORE_DATA" && FW_RESTORE_RAMDISK="$Return_Val"
-    defaults "SystemRestoreImages User" "$RESTORE_DATA" && FW_RESTORE_SYSTEMDISK="$Return_Val"
+    # Retrieve information from the firmware image we downloaded so we know
+    # which file to decrypt and which key to use to decrypt it
+    FM_DEVICE_CLASS=$(plist_key DeviceClass "/" "${TMP_DIR}/Restore.plist")
+    FW_PRODUCT_VERSION=$(plist_key ProductVersion "/" "${TMP_DIR}/Restore.plist")
+    FW_BUILD_VERSION=$(plist_key ProductBuildVersion "/" "${TMP_DIR}/Restore.plist")
+    FW_BUILD_VERSION=$(plist_key User "/RestoreRamDisks/" "${TMP_DIR}/Restore.plist")
+    FW_RESTORE_SYSTEMDISK=$(plist_key User "/SystemRestoreImages/" "${TMP_DIR}/Restore.plist")
     
-    message_status "Unzipping $FW_RESTORE_SYSTEMDISK..."
+    message_status "Unzipping `basename $FW_RESTORE_SYSTEMDISK`..."
     unzip -d "${TMP_DIR}" -o "${FW_FILE}" "${FW_RESTORE_SYSTEMDISK}"
 
     if [ ! "$DECRYPTION_KEY_SYSTEM" ] ; then
-        message_status "We need the DECRYPTION_KEY for $FW_RESTORE_SYSTEMDISK."
+        message_status "We need the decryption key for `basename $FW_RESTORE_SYSTEMDISK`."
         message_status "I'm going to try to fetch it from $IPHONEWIKI_KEY_URL...."
-        DECRYPTION_KEY_SYSTEM=$( wget --quiet -O - $IPHONEWIKI_KEY_URL | awk --re-interval \
-             "BEGIN { IGNORECASE=1; } \
-            /name=\"$FW_PRODUCT_VERSION.*$FW_BUILD_VERSION/ { found = 1; next; } \
-            /([a-fA-F0-9]){72}/ && found == 1 \
-            { split(\$0,result,\"<p>\"); print toupper(result[2]); exit;  }" )
+        DECRYPTION_KEY_SYSTEM=$( wget --quiet -O - $IPHONEWIKI_KEY_URL | awk '
+            /name=\"'"${FW_PRODUCT_VERSION}"'.*'"${FW_BUILD_VERSION}"'/ { found = 1; }
+            /<p>.*$/ && found { sub(/.*<p>/, "", $0); print toupper($0); exit; }' )
         if [ ! "$DECRYPTION_KEY_SYSTEM" ] ; then
             error "Sorry, no decryption key for system partition found!"
             exit 1;
@@ -683,7 +591,7 @@ toolchain_download_darwin_sources() {
 	LOGIN_ERROR=$(wget --quiet --save-cookies=cookies.tmp --keep-session-cookies \
 			--post-data="theAccountName=${APPLE_ID}&theAccountPW=${APPLE_PASSWORD}&1.Continue.x=1&1.Continue.y=1&theAuxValue=" \
 			--no-check-certificate -O - "https://daw.apple.com${LOGIN_URL}" | awk '{
-		if(match($0, /<FONT COLOR="#ff0000" SIZE=1>([^>]*)<\/FONT>/)) {
+		if(match($0, /<FONT COLOR="#ff0000" SIZE=1>([^<]*)<\/FONT>/)) {
 			$0=substr($0, RSTART, RLENGTH);
 			sub(/<FONT COLOR="#ff0000" SIZE=1>/, "", $0);
 			sub(/<\/FONT>/, "", $0);
