@@ -338,6 +338,12 @@ extract_headers() {
 
     rm -fR $TMP_DIR/*
 
+    # These folders are version named so the SDK version can be verified
+    if [ ! -d Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ]; then
+    	error "I couldn't find the folder iPhoneOS${TOOLCHAIN_VERSION}.sdk. Perhaps this is"
+    	error "not the right SDK dmg for toolchain ${TOOLCHAIN_VERSION}."
+    fi
+
     cp $IPHONE_PKG $TMP_DIR/iphone.pkg
     cd $TMP_DIR
     xar -xf iphone.pkg Payload
@@ -783,7 +789,7 @@ toolchain_build() {
 
     # this step may have a bad hunk in CoreFoundation and thread_status while patching
     # these errors are to be ignored, as these are changes for issues Apple has now fixed
-    # include.diff is a modified version of saurik's patch to support iPhone 2.2 SDK.
+    # include.diff is a modified version the telesphoreo patchs to support iPhone 2.2 SDK.
     patch -p3 -N < "${HERE}/include.diff"
     wget -qO arm/locks.h http://svn.telesphoreo.org/trunk/tool/patches/locks.h
 
@@ -825,7 +831,9 @@ toolchain_build() {
     cecho bold "Build progress logged to: toolchain/bld/cctools-iphone/make.log"
     mkdir -p "$TOOLCHAIN/bld/cctools-iphone"
     cd "$TOOLCHAIN/bld/cctools-iphone"
-    CFLAGS=-m32 LDFLAGS=-m32 "${CCTOOLS_DIR}"/configure \
+    export CFLAGS="-m32"
+    export LDFLAGS="-m32"
+    "${CCTOOLS_DIR}"/configure \
         --target="${TARGET}" \
         --prefix="$TOOLCHAIN/pre" \
         --disable-ld64
