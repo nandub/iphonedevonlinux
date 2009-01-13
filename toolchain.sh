@@ -25,7 +25,7 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 # What version of the toolchain are we building?
-TOOLCHAIN_VERSION="2.2"
+TOOLCHAIN_VERSION="2.1"
 
 # Build everything relative to IPHONEDEV_DIR
 # Default is /home/loginname/iphonedev
@@ -571,264 +571,294 @@ toolchain_download_darwin_sources() {
 # www.saurik.com/id/4
 toolchain_build() {
 
-    local TOOLCHAIN="${IPHONEDEV_DIR}/toolchain"
-    local LEOPARD_SDK="${SDKS_DIR}/MacOSX10.5.sdk"
-    local LEOPARD_SDK_INC="${LEOPARD_SDK}/usr/include"
-    local LEOPARD_SDK_LIBS="${LEOPARD_SDK}/System/Library/Frameworks"
-    local IPHONE_SDK="${SDKS_DIR}/iPhoneOS${TOOLCHAIN_VERSION}.sdk"
-    local IPHONE_SDK_INC="${IPHONE_SDK}/usr/include"
-    local IPHONE_SDK_LIBS="${IPHONE_SDK}/System/Library/Frameworks"
-    local CCTOOLS_DIR="$TOOLCHAIN/src/cctools"
-    local GCC_DIR="$TOOLCHAIN/src/gcc"
-    local CSU_DIR="$TOOLCHAIN/src/csu"
-    export PATH="$TOOLCHAIN/pre/bin":"${PATH}" 
-    if [ "`vercmp $TOOLCHAIN_VERSION 2.0`" == "newer" ]; then
-    	local TARGET="arm-apple-darwin9"
-    else
-    	local TARGET="arm-apple-darwin8"
-    fi
+	local TOOLCHAIN="${IPHONEDEV_DIR}/toolchain"
+	local LEOPARD_SDK="${SDKS_DIR}/MacOSX10.5.sdk"
+	local LEOPARD_SDK_INC="${LEOPARD_SDK}/usr/include"
+	local LEOPARD_SDK_LIBS="${LEOPARD_SDK}/System/Library/Frameworks"
+	local IPHONE_SDK="${SDKS_DIR}/iPhoneOS${TOOLCHAIN_VERSION}.sdk"
+	local IPHONE_SDK_INC="${IPHONE_SDK}/usr/include"
+	local IPHONE_SDK_LIBS="${IPHONE_SDK}/System/Library/Frameworks"
+	local CCTOOLS_DIR="$TOOLCHAIN/src/cctools"
+	local GCC_DIR="$TOOLCHAIN/src/gcc"
+	local CSU_DIR="$TOOLCHAIN/src/csu"
+	export PATH="$TOOLCHAIN/pre/bin":"${PATH}" 
+	if [ "`vercmp $TOOLCHAIN_VERSION 2.0`" == "newer" ]; then
+		local TARGET="arm-apple-darwin9"
+	else
+		local TARGET="arm-apple-darwin8"
+	fi
 
-    mkdir -p "${TOOLCHAIN}"
+	mkdir -p "${TOOLCHAIN}"
 
-    cd "${DARWIN_SOURCES_DIR}"
-    message_status "Finding and extracting archives..."
-    find ./* -name '*.tar.gz' -exec tar --overwrite -xzof {} \;
+	cd "${DARWIN_SOURCES_DIR}"
+	message_status "Finding and extracting archives..."
+	find ./* -name '*.tar.gz' -exec tar --overwrite -xzof {} \;
+
+	# Permissions are being extracted along with the gzipped files. I can't seem to get
+	# tar to ignore this, and they are constantly in the way so I'll use this hack.
+	chmod -R 755 *
+
+	mkdir -p "$TOOLCHAIN/sys"
+	cd "$TOOLCHAIN/sys"
+
+	if [ ! -d "${FW_DIR}/current" ] ; then
+		error "I couldn't find an iPhone filesystem at: ${FW_DIR}/current"
+		exit 1
+	fi
     
-    # Permissions are being extracted along with the gzipped files. I can't seem to get
-    # tar to ignore this, and they are constantly in the way so I'll use this hack.
-    chmod -R 755 *
 
-    mkdir -p "$TOOLCHAIN/sys"
-    cd "$TOOLCHAIN/sys"
+	if [ -d $TOOLCHAIN/sys ] && [[ `ls -A $TOOLCHAIN/sys | wc -w` > 0 ]]; then
+		echo "It looks like the iPhone filesystem has already been copied."
+		read -p "Copy again (y/N)? "
+		if [ "${REPLY}" == "y" ]; then
+			message_status "Copying required iPhone filesystem components..."
+			# I have tried to avoid copying the permissions (not using -a) because they
+			# get in the way later down the track. This might be wrong but it seems okay.
+			cp -rdH ${FW_DIR}/current/* "$TOOLCHAIN/sys"
+			rm -rf usr/include
+		fi
+	else
+		message_status "Copying required iPhone filesystem components..."
+		cp -rdH ${FW_DIR}/current/* "$TOOLCHAIN/sys" # As above
+		rm -rf usr/include
+	fi
 
-    if [ ! -d "${FW_DIR}/current" ] ; then
-        error "I couldn't find an iPhone filesystem at: ${FW_DIR}/current"
-        exit 1
-    fi
+	# Presently working here and below
+	message_status "Copying SDK headers..."
+	echo "Leopard"
+	cp -a "${LEOPARD_SDK_INC}" usr/include
+	cd usr/include
+	ln -s . System
+
+	cp -af "${IPHONE_SDK_INC}"/* .
+	cp -af "${apple}"/xnu-1228.7.58/osfmk/* .
+	cp -af "${apple}"/xnu-1228.7.58/bsd/* . 
+
+	echo "mach"
+	cp -af "${DARWIN_SOURCES_DIR}"/cctools-*/include/mach .
+	cp -af "${DARWIN_SOURCES_DIR}"/cctools-*/include/mach-o .
+	cp -af "${IPHONE_SDK_INC}"/mach-o/dyld.h mach-o
+
+	cp -af "${LEOPARD_SDK_INC}"/mach/machine mach
+	cp -af "${LEOPARD_SDK_INC}"/mach/machine.h mach
+	cp -af "${LEOPARD_SDK_INC}"/machine .
+	cp -af "${IPHONE_SDK_INC}"/machine .
+
+	cp -af "${IPHONE_SDK_INC}"/sys/cdefs.h sys
+	cp -af "${LEOPARD_SDK_INC}"/sys/dtrace.h sys
+
+	cp -af "${LEOPARD_SDK_LIBS}"/Kernel.framework/Versions/A/Headers/machine/disklabel.h machine
+	cp -af "${DARWIN_SOURCES_DIR}"/configd-*/dnsinfo/dnsinfo.h .
+	cp -a "${DARWIN_SOURCES_DIR}"/Libc-*/include/kvm.h .
+	cp -a "${DARWIN_SOURCES_DIR}"/launchd-*/launchd/src/*.h .
+
+	cp -a i386/disklabel.h arm
+	cp -a mach/i386/machine_types.defs mach/arm
+
+	# if you don't have mig, just ignore this for now
+	#for defs in clock_reply exc mach_exc notify; do
+	#    mig -server /dev/null -user /dev/null -header /dev/null \
+	#        -sheader mach/"${defs}"_server.h mach/"${defs}".defs
+	#done
+
+	mkdir Kernel
+	echo "libsa"
+	cp -a "${DARWIN_SOURCES_DIR}"/xnu-1228.3.13/libsa/libsa Kernel
+
+	mkdir Security
+	echo "libsecurity"
+	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_authorization-*/lib/*.h Security
+	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_cdsa_client-*/lib/*.h Security
+	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_cdsa_utilities-*/lib/*.h Security
+	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_cms-*/lib/*.h Security
+	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_codesigning-*/lib/*.h Security
+	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_cssm-*/lib/*.h Security
+	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_keychain-*/lib/*.h Security
+	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_mds-*/lib/*.h Security
+	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_ssl-*/lib/*.h Security
+	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_utilities-*/lib/*.h Security
+	cp -a "${DARWIN_SOURCES_DIR}"/libsecurityd-*/lib/*.h Security
+
+	mkdir DiskArbitration
+	echo "DiskArbitration"
+	cp -a "${DARWIN_SOURCES_DIR}"/DiskArbitration-*/DiskArbitration/*.h DiskArbitration
+
+	echo "iokit"
+	cp -a "${DARWIN_SOURCES_DIR}"/xnu-*/iokit/IOKit .
+	cp -a "${DARWIN_SOURCES_DIR}"/IOKitUser-*/*.h IOKit
+
+	cp -a "${DARWIN_SOURCES_DIR}"/IOGraphics-*/IOGraphicsFamily/IOKit/graphics IOKit
+	cp -a "${DARWIN_SOURCES_DIR}"/IOHIDFamily-*/IOHIDSystem/IOKit/hidsystem IOKit
+
+	for proj in kext ps pwr_mgt; do
+		mkdir -p IOKit/"${proj}"
+		cp -a "${DARWIN_SOURCES_DIR}"/IOKitUser-*/"${proj}".subproj/*.h IOKit/"${proj}"
+	done
     
+	ln -s IOKit/kext/bootfiles.h .
 
-    if [ -d $TOOLCHAIN/sys ] && [[ `ls -A $TOOLCHAIN/sys | wc -w` > 0 ]]; then
-	    echo "It looks like the iPhone filesystem has already been copied."
-	    read -p "Copy again (y/N)? "
-	    if [ "${REPLY}" == "y" ]; then
-	    	message_status "Copying required iPhone filesystem components..."
-	    	# I have tried to avoid copying the permissions (not using -a) because they
-	    	# get in the way later down the track. This might be wrong but it seems okay.
-	    	cp -rdH ${FW_DIR}/current/* "$TOOLCHAIN/sys"
-	    	rm -rf usr/include
-	    fi
-    else
-    	message_status "Copying required iPhone filesystem components..."
-    	cp -rdH ${FW_DIR}/current/* "$TOOLCHAIN/sys" # As above
-    	rm -rf usr/include
-    fi
+	mkdir -p IOKit/storage
+	cp -a "${DARWIN_SOURCES_DIR}"/IOStorageFamily-*/*.h IOKit/storage
+	cp -a "${DARWIN_SOURCES_DIR}"/IOCDStorageFamily-*/*.h IOKit/storage
+	cp -a "${DARWIN_SOURCES_DIR}"/IODVDStorageFamily-*/*.h IOKit/storage
 
-    # Presently working here and below
-    message_status "Copying SDK headers..."
-    echo "Leopard"
-    cp -a "${LEOPARD_SDK_INC}" usr/include
-    cd usr/include
-    ln -s . System
+	mkdir DirectoryService
+	cp -a "${DARWIN_SOURCES_DIR}"/DirectoryService-*/APIFramework/*.h DirectoryService
 
-    cp -af "${IPHONE_SDK_INC}"/* .
-    cp -af "${DARWIN_SOURCES_DIR}"/xnu-*/osfmk/* "${DARWIN_SOURCES_DIR}"/xnu-*/bsd/* .
+	mkdir DirectoryServiceCore
+	cp -a "${DARWIN_SOURCES_DIR}"/DirectoryService-*/CoreFramework/Private/*.h DirectoryServiceCore
+	cp -a "${DARWIN_SOURCES_DIR}"/DirectoryService-*/CoreFramework/Public/*.h DirectoryServiceCore 
 
-    echo "mach"
-    cp -af "${DARWIN_SOURCES_DIR}"/cctools-*/include/mach .
-    cp -af "${DARWIN_SOURCES_DIR}"/cctools-*/include/mach-o .
-    cp -af "${IPHONE_SDK_INC}"/mach-o/dyld.h mach-o
+	mkdir SystemConfiguration
+	echo "configd"
+	cp -a "${DARWIN_SOURCES_DIR}"/configd-*/SystemConfiguration.fproj/*.h SystemConfiguration
 
-    cp -af "${LEOPARD_SDK_INC}"/mach/machine mach
-    cp -af "${LEOPARD_SDK_INC}"/mach/machine.h mach
-    cp -af "${LEOPARD_SDK_INC}"/machine .
-    cp -af "${IPHONE_SDK_INC}"/machine .
+	echo "CoreFoundation"
+	mkdir CoreFoundation
+	cp -a "${LEOPARD_SDK_LIBS}"/CoreFoundation.framework/Versions/A/Headers/* CoreFoundation
+	cp -af "${DARWIN_SOURCES_DIR}"/CF-*/*.h CoreFoundation
+	cp -af "${IPHONE_SDK_LIBS}"/CoreFoundation.framework/Headers/* CoreFoundation
 
-    cp -af "${IPHONE_SDK_INC}"/sys/cdefs.h sys
-    cp -af "${LEOPARD_SDK_INC}"/sys/dtrace.h sys
+	for framework in AudioToolbox AudioUnit CoreAudio QuartzCore Foundation; do
+		echo $framework
+		mkdir -p $framework
+		cp -a "${LEOPARD_SDK_LIBS}"/"${framework}".framework/Versions/*/Headers/* "${framework}"
+		cp -af "${IPHONE_SDK_LIBS}"/"${framework}".framework/Headers/* "${framework}"
+	done
 
-    cp -af "${LEOPARD_SDK_LIBS}"/Kernel.framework/Versions/A/Headers/machine/disklabel.h machine
-    cp -af "${DARWIN_SOURCES_DIR}"/configd-*/dnsinfo/dnsinfo.h .
-    cp -a "${DARWIN_SOURCES_DIR}"/Libc-*/include/kvm.h .
-    cp -a "${DARWIN_SOURCES_DIR}"/launchd-*/launchd/src/*.h .
+	# UIKit fix (these are only the public framework headers)
+	mkdir -p UIKit
+	cp -a "${IPHONE_SDK_LIBS}"/UIKit.framework/Headers/* UIKit 
 
-    cp -a i386/disklabel.h arm
-    cp -a mach/i386/machine_types.defs mach/arm
+	for framework in AppKit Cocoa CoreData CoreVideo JavaScriptCore OpenGL WebKit; do
+		echo $framework
+		mkdir -p $framework
+		cp -a "${LEOPARD_SDK_LIBS}"/"${framework}".framework/Versions/*/Headers/* $framework
+	done
+	
+	mkdir AddressBook
+	cp -aH "${IPHONE_SDK_LIBS}"/AddressBook.framework/Headers/* AddressBook
 
-    # if you don't have mig, just ignore this for now
-    #for defs in clock_reply exc mach_exc notify; do
-    #    mig -server /dev/null -user /dev/null -header /dev/null \
-    #        -sheader mach/"${defs}"_server.h mach/"${defs}".defs
-    #done
+	echo "Application Services"
+	mkdir ApplicationServices
+	cp -a "${LEOPARD_SDK_LIBS}"/ApplicationServices.framework/Versions/A/Headers/* ApplicationServices
+	for service in "${LEOPARD_SDK_LIBS}"/ApplicationServices.framework/Versions/A/Frameworks/*.framework; do
+		echo -e "\t$(basename $service .framework)"
+		mkdir -p "$(basename $service .framework)"
+		cp -a $service/Versions/A/Headers/* "$(basename $service .framework)"
+	done
 
-    mkdir -p Kernel
-    echo "libsa"
-    cp -a "${DARWIN_SOURCES_DIR}"/xnu-*/libsa/libsa Kernel
+	echo "Core Services"
+	mkdir -p CoreServices
+	cp -a "${LEOPARD_SDK_LIBS}"/CoreServices.framework/Versions/A/Headers/* CoreServices
+	for service in "${LEOPARD_SDK_LIBS}"/CoreServices.framework/Versions/A/Frameworks/*.framework; do
+		mkdir -p "$(basename $service .framework)"cp -af "${apple}"/xnu-1228.7.58/osfmk/* . cp -af "${apple}"/xnu-1228.7.58/bsd/* . 
+		cp -a $service/Versions/A/Headers/* "$(basename $service .framework)"
+	done
 
-    mkdir -p Security
-    echo "libsecurity"
-    cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_authorization-*/lib/*.h Security
-    cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_cdsa_client-*/lib/*.h Security
-    cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_cdsa_utilities-*/lib/*.h Security
-    cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_cms-*/lib/*.h Security
-    cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_codesigning-*/lib/*.h Security
-    cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_cssm-*/lib/*.h Security
-    cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_keychain-*/lib/*.h Security
-    cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_mds-*/lib/*.h Security
-    cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_ssl-*/lib/*.h Security
-    cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_utilities-*/lib/*.h Security
-    cp -a "${DARWIN_SOURCES_DIR}"/libsecurityd-*/lib/*.h Security
+	mkdir WebCore
+	echo "WebCore"
+	cp -a "${DARWIN_SOURCES_DIR}"/WebCore-*/bindings/objc/*.h WebCore
+	cp -a "${DARWIN_SOURCES_DIR}"/WebCore-*/bridge/mac/*.h WebCore 
+	for subdir in css dom editing history html loader page platform{,/{graphics,text}} rendering; do
+	    cp -a "${DARWIN_SOURCES_DIR}"/WebCore-*/"${subdir}"/*.h WebCore
+	done
 
-    mkdir -p DiskArbitration
-    echo "DiskArbitration"
-    cp -a "${DARWIN_SOURCES_DIR}"/DiskArbitration-*/DiskArbitration/*.h DiskArbitration
+	cp -a "${DARWIN_SOURCES_DIR}"/WebCore-*/css/CSSPropertyNames.in WebCore
+	(cd WebCore; perl "${DARWIN_SOURCES_DIR}"/WebCore-*/css/makeprop.pl)
 
-    echo "iokit"
-    cp -a "${DARWIN_SOURCES_DIR}"/xnu-*/iokit/IOKit .
-    cp -a "${DARWIN_SOURCES_DIR}"/IOKitUser-*/*.h IOKit
+	mkdir kjs
+	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/kjs/*.h kjs
 
-    cp -a "${DARWIN_SOURCES_DIR}"/IOGraphics-*/IOGraphicsFamily/IOKit/graphics IOKit
-    cp -a "${DARWIN_SOURCES_DIR}"/IOHIDFamily-*/IOHIDSystem/IOKit/hidsystem IOKit
+	mkdir -p wtf/unicode/icu
+	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/wtf/*.h wtf
+	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/wtf/unicode/*.h wtf/unicode
+	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-466.1/wtf/unicode/icu/*.h wtf/unicode/icu
 
-    for proj in kext ps pwr_mgt; do
-        mkdir -p IOKit/"${proj}"
-        cp -a "${DARWIN_SOURCES_DIR}"/IOKitUser-*/"${proj}".subproj/*.h IOKit/"${proj}"
-    done
-
-    mkdir -p IOKit/storage
-    cp -a "${DARWIN_SOURCES_DIR}"/IOStorageFamily-*/*.h IOKit/storage
-    cp -a "${DARWIN_SOURCES_DIR}"/IOCDStorageFamily-*/*.h IOKit/storage
-    cp -a "${DARWIN_SOURCES_DIR}"/IODVDStorageFamily-*/*.h IOKit/storage
-
-    mkdir -p SystemConfiguration
-    echo "configd"
-    cp -a "${DARWIN_SOURCES_DIR}"/configd-*/SystemConfiguration.fproj/*.h SystemConfiguration
-
-    mkdir -p WebCore
-    echo "WebCore"
-    cp -a  "${DARWIN_SOURCES_DIR}"/WebCore*/bindings/objc/*.h WebCore
-
-    echo "CoreFoundation"
-    mkdir -p CoreFoundation
-    cp -a "${LEOPARD_SDK_LIBS}"/CoreFoundation.framework/Versions/A/Headers/* CoreFoundation
-    cp -af "${DARWIN_SOURCES_DIR}"/CF-*/*.h CoreFoundation
-    cp -af "${IPHONE_SDK_LIBS}"/CoreFoundation.framework/Headers/* CoreFoundation
-
-    for framework in AudioToolbox AudioUnit CoreAudio QuartzCore Foundation; do
-    	echo $framework
-    	mkdir -p $framework
-        cp -a "${LEOPARD_SDK_LIBS}"/"${framework}".framework/Versions/*/Headers/* "${framework}"
-        cp -af "${IPHONE_SDK_LIBS}"/"${framework}".framework/Headers/* "${framework}"
-    done
-
-    # UIKit fix (these are only the public framework headers)
-    mkdir -p UIKit
-    cp -a "${IPHONE_SDK_LIBS}"/UIKit.framework/Headers/* UIKit 
-
-    for framework in AppKit Cocoa CoreData CoreVideo JavaScriptCore OpenGL WebKit; do
-    	echo $framework
-    	mkdir -p $framework
-    	cp -a "${LEOPARD_SDK_LIBS}"/"${framework}".framework/Versions/*/Headers/* $framework
-    done
-
-    echo "Application Services"
-    mkdir -p ApplicationServices
-    cp -a "${LEOPARD_SDK_LIBS}"/ApplicationServices.framework/Versions/A/Headers/* ApplicationServices
-    for service in "${LEOPARD_SDK_LIBS}"/ApplicationServices.framework/Versions/A/Frameworks/*.framework; do
-    	echo -e "\t$(basename $service .framework)"
-    	mkdir -p "$(basename $service .framework)"
-        cp -a $service/Versions/A/Headers/* "$(basename $service .framework)"
-    done
-
-    echo "Core Services"
-    mkdir -p CoreServices
-    cp -a "${LEOPARD_SDK_LIBS}"/CoreServices.framework/Versions/A/Headers/* CoreServices
-    for service in "${LEOPARD_SDK_LIBS}"/CoreServices.framework/Versions/A/Frameworks/*.framework; do
-    	mkdir -p "$(basename $service .framework)"
-        cp -a $service/Versions/A/Headers/* "$(basename $service .framework)"
-    done
+	mkdir unicode
+	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/icu/unicode/*.h unicode
+	
+	cd "$TOOLCHAIN/sys"
+	ln -sf gcc/darwin/4.0/stdint.h usr/include
+	ln -s libstdc++.6.dylib usr/lib/libstdc++.dylib
     
-    message_status "Applying patches..."
+	message_status "Applying patches..."
 
-    if [ ! -r "${HERE}/include.diff" ]; then
-    	error "Missing include.diff! This file is required to merge the OSX and iPhone SDKs."
-    	exit 1
-    fi
+	if [ ! -r "${HERE}/include.diff" ]; then
+		error "Missing include.diff! This file is required to merge the OSX and iPhone SDKs."
+		exit 1
+	fi
 
-    # this step may have a bad hunk in CoreFoundation and thread_status while patching
-    # these errors are to be ignored, as these are changes for issues Apple has now fixed
-    # include.diff is a modified version the telesphoreo patchs to support iPhone 2.2 SDK.
-    patch -p3 -N < "${HERE}/include.diff"
-    wget -qO arm/locks.h http://svn.telesphoreo.org/trunk/tool/patches/locks.h
+	# this step may have a bad hunk in CoreFoundation and thread_status while patching
+	# these errors are to be ignored, as these are changes for issues Apple has now fixed
+	# include.diff is a modified version the telesphoreo patchs to support iPhone 2.2 SDK.
+	patch -p3 -N < "${HERE}/include.diff"
+	wget -qO arm/locks.h http://svn.telesphoreo.org/trunk/tool/patches/locks.h
 
-    mkdir -p GraphicsServices
-    cd GraphicsServices
-    wget -q http://svn.telesphoreo.org/trunk/tool/patches/GraphicsServices.h
+	mkdir -p GraphicsServices
+	cd GraphicsServices
+	wget -q http://svn.telesphoreo.org/trunk/tool/patches/GraphicsServices.h
 
-    cd "$TOOLCHAIN/sys"
-    ln -sf gcc/darwin/4.0/stdint.h usr/include
-    ln -s libstdc++.6.dylib usr/lib/libstdc++.dylib
+	# Changed some of the below commands from sudo; don't know why they were like that
+	message_status "Checking out iphone-dev repo..."
+	mkdir -p "${CSU_DIR}"
+	cd "${CSU_DIR}"
+	svn co http://iphone-dev.googlecode.com/svn/trunk/csu .
+	cp -a *.o "$TOOLCHAIN/sys"/usr/lib
+	cd "$TOOLCHAIN/sys"/usr/lib
+	chmod 644 *.o
+	cp -af crt1.o crt1.10.5.o
+	cp -af dylib1.o dylib1.10.5.o
 
-    # Changed some of the below commands from sudo; don't know why they were like that
-    message_status "Checking out iphone-dev repo..."
-    mkdir -p "${CSU_DIR}"
-    cd "${CSU_DIR}"
-    svn co http://iphone-dev.googlecode.com/svn/trunk/csu .
-    cp -a *.o "$TOOLCHAIN/sys"/usr/lib
-    cd "$TOOLCHAIN/sys"/usr/lib
-    chmod 644 *.o
-    cp -af crt1.o crt1.10.5.o
-    cp -af dylib1.o dylib1.10.5.o
-
-    if [ ! -d $GCC_DIR ]; then
-    	message_status "Checking out saurik's llvm-gcc-4.2..."
-    	rm -rf "${GCC_DIR}"
-    	git clone git://git.saurik.com/llvm-gcc-4.2 "${GCC_DIR}"
-    else
-    	message_status "Updating llvm-gcc-4.2..."
-    	pushd $GCC_DIR && git pull git://git.saurik.com/llvm-gcc-4.2 master && popd
-    fi
+	if [ ! -d $GCC_DIR ]; then
+		message_status "Checking out saurik's llvm-gcc-4.2..."
+		rm -rf "${GCC_DIR}"
+		git clone git://git.saurik.com/llvm-gcc-4.2 "${GCC_DIR}"
+	else
+		message_status "Updating llvm-gcc-4.2..."
+		pushd $GCC_DIR && git pull git://git.saurik.com/llvm-gcc-4.2 master && popd
+	fi
     
-    message_status "Checking out odcctools..."
-    mkdir -p "${CCTOOLS_DIR}"
-    svn co http://iphone-dev.googlecode.com/svn/branches/odcctools-9.2-ld "${CCTOOLS_DIR}"
+	message_status "Checking out odcctools..."
+	mkdir -p "${CCTOOLS_DIR}"
+	svn co http://iphone-dev.googlecode.com/svn/branches/odcctools-9.2-ld "${CCTOOLS_DIR}"
 
-    message_status "Configuring cctools-iphone..."
-    mkdir -p "$TOOLCHAIN/pre"
-    mkdir -p "$TOOLCHAIN/bld/cctools-iphone"
-    cd "$TOOLCHAIN/bld/cctools-iphone"
-    CFLAGS="-m32" LDFLAGS="-m32" "${CCTOOLS_DIR}"/configure \
-        --target="${TARGET}" \
-        --prefix="$TOOLCHAIN/pre" \
-        --disable-ld64
-    make clean > /dev/null
-    message_status "Building cctools-iphone..."
-    cecho bold "Build progress logged to: toolchain/bld/cctools-iphone/make.log"
-    if ! ( make &>make.log && make install &>install.log ); then
-    	error "Build & install failed. Check make.log and install.log"
-    fi
+	message_status "Configuring cctools-iphone..."
+	mkdir -p "$TOOLCHAIN/pre"
+	mkdir -p "$TOOLCHAIN/bld/cctools-iphone"
+	cd "$TOOLCHAIN/bld/cctools-iphone"
+	CFLAGS="-m32" LDFLAGS="-m32" "${CCTOOLS_DIR}"/configure \
+		--target="${TARGET}" \
+		--prefix="$TOOLCHAIN/pre" \
+		--disable-ld64
+	make clean > /dev/null
+	message_status "Building cctools-iphone..."
+	cecho bold "Build progress logged to: toolchain/bld/cctools-iphone/make.log"
+	if ! ( make &>make.log && make install &>install.log ); then
+		error "Build & install failed. Check make.log and install.log"
+	fi
 
-    message_status "Configuring gcc-4.2-iphone..."
-    mkdir -p "$TOOLCHAIN/bld/gcc-4.2-iphone"
-    cd "$TOOLCHAIN/bld/gcc-4.2-iphone"
-    "${GCC_DIR}"/configure \
-        --target="${TARGET}" \
-        --prefix="$TOOLCHAIN/pre" \
-        --with-sysroot="$TOOLCHAIN/sys" \
-        --enable-languages=c,c++,objc,obj-c++ \
-        --with-as="$TOOLCHAIN"/pre/bin/"${TARGET}"-as \
-        --with-ld="$TOOLCHAIN"/pre/bin/"${TARGET}"-ld \
-        --enable-wchar_t=no \
-        --with-gxx-include-dir=/usr/include/c++/4.0.0
-    make clean > /dev/null
-    message_status "Building gcc-4.2-iphone..."
-    cecho bold "Build progress logged to: toolchain/bld/gcc-4.2-iphone/make.log"
-    if ! ( make -j2 &>make.log && make install &>install.log ); then
-    	error "Build & install failed. Check make.log and install.log"
-    fi
+	message_status "Configuring gcc-4.2-iphone..."
+	mkdir -p "$TOOLCHAIN/bld/gcc-4.2-iphone"
+	cd "$TOOLCHAIN/bld/gcc-4.2-iphone"
+	"${GCC_DIR}"/configure \
+		--target="${TARGET}" \
+		--prefix="$TOOLCHAIN/pre" \
+		--with-sysroot="$TOOLCHAIN/sys" \
+		--enable-languages=c,c++,objc,obj-c++ \
+		--with-as="$TOOLCHAIN"/pre/bin/"${TARGET}"-as \
+		--with-ld="$TOOLCHAIN"/pre/bin/"${TARGET}"-ld \
+		--enable-wchar_t=no \
+		--with-gxx-include-dir=/usr/include/c++/4.0.0
+	make clean > /dev/null
+	message_status "Building gcc-4.2-iphone..."
+	cecho bold "Build progress logged to: toolchain/bld/gcc-4.2-iphone/make.log"
+	if ! ( make -j2 &>make.log && make install &>install.log ); then
+		error "Build & install failed. Check make.log and install.log"
+	fi
 
-    mkdir -p "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pre)"
-    ln -s "$TOOLCHAIN/pre" "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pre)"
-
+	mkdir -p "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pre)"
+	ln -s "$TOOLCHAIN/pre" "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pre)"
 }
 
 class_dump() {
