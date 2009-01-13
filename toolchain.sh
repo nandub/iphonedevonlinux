@@ -28,7 +28,7 @@ TOOLCHAIN_VERSION="2.2"
 
 # Build everything relative to IPHONEDEV_DIR
 # Default is /home/loginname/iphonedev
-IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain/"
+IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain"
 
 # How to use this script
 # ======================
@@ -102,7 +102,7 @@ TOOLS_DIR="${IPHONEDEV_DIR}/tools"
 XPWN_DIR="${TOOLS_DIR}/xpwn"
 MIG_DIR="${TOOLS_DIR}/mig"
 TMP_DIR="${IPHONEDEV_DIR}/tmp"
-MNT_DIR="${TMP_DIR}/mnt"
+MNT_DIR="${FILES_DIR}/mnt"
 FW_DIR="${FILES_DIR}/firmware"
 
 IPHONE_SDK="iphone_sdk_for_iphone_os_${TOOLCHAIN_VERSION}__final.dmg"
@@ -133,7 +133,7 @@ HERE=`pwd`
 
 # Beautified echo commands
 cecho() {
-	while [ $# > 1 ]; do
+	while [[ $# > 1 ]]; do
 		case $1 in
 			red)	echo -n "$(tput setaf 1)";;
 			green)	echo -n "$(tput setaf 2)";;
@@ -182,7 +182,7 @@ check_commands() {
 check_packages() {
 	local missing
 	for p in $NEEDED_PACKAGES; do
-		local package_state=$(dpkg --get-selections | awk "/^$p.*(install)$/ { print \$2; exit }")
+		local package_state=$(dpkg --get-selections | awk "/^$p.*install$/ { print \"install\"; exit }")
 		if ! [ "$package_state" == "install" ]; then
 			missing="$missing $p"
 		fi
@@ -201,8 +201,8 @@ check_dirs() {
         $DARWIN_SOURCES_FILES_DIR \
         $SDKS_DIR \
         $TOOLS_DIR \
-        $MNT_DIR \
         $TMP_DIR \
+        $MNT_DIR \
         $FW_DIR ; do
 
         [ ! -d $d ] && mkdir $d
@@ -212,11 +212,11 @@ check_dirs() {
 # Takes a plist string and does a very basic lookup of a particular key value,
 # given a key name an XPath style path to the key in terms of dict entries
 plist_key() {
-	local PLIST_PATH="$1"
-	local PLIST_KEY="$2"
+	local PLIST_PATH="$2"
+	local PLIST_KEY="$1"
 	local PLIST_DATA="$3"
 
-	cat $PLIST_DATA | awk '
+	cat "${PLIST_DATA}" | awk '
 		/<key>.*<\/key>/ { sub(/^.*<key>/, "", $0); sub(/<\/key>.*$/, "", $0); lastKey = $0; }
 		/<dict>/ { path = path lastKey "/"; }
 		/<\/dict>/ { sub(/[a-zA-Z0-9]*\/$/, "", path);}
@@ -225,11 +225,6 @@ plist_key() {
 				sub(/^.*<((string)|(integer))>/,"", $0); sub(/<\/((string)|(integer))>.*$/,"", $0); print $0;
 			}
 		}'
-}
-
-build_tools() {
-    build_xpwn_dmg
-    build_vfdecrypt
 }
 
 # Builds the XPWN dmg decryption tools, which we will use later to convert dmgs to
@@ -283,12 +278,14 @@ build_vfdecrypt() {
     	message_status "Downloading and building vfdecrypt..."
         cd $TOOLS_DIR
         
+        local VFDECRYPT_TGZ=`basename $VFDECRYPT_URL`
+        
         # Try to locate the tool source or ask the user if we can't find it. As a last
         # resort we can download it.
         if [ ! -r $VFDECRYPT_TGZ ]; then
-        	echo "I can't find the VFDecrypt source (`$VFDECRYPT_TGZ`)."
+        	echo "I can't find the VFDecrypt source ($VFDECRYPT_TGZ)."
         	read -p "Do you have it (y/N)? "
-        	if [ "$REPLY" == "yes" ] || [ "$REPLY" == "y"]; then
+        	if [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ]; then
         		read -p "Location of VFDecrypt: " VFDECRYPT_TGZ
         	else
         		read -p "Do you want me to download it (Y/n)? "
@@ -312,7 +309,7 @@ build_vfdecrypt() {
 }
 
 convert_dmg_to_img() {
-    [ ! -x $DMG ] && error "$DMG not found/executable." && exit 1
+    [ ! -x $DMG ] && build_xpwn_dmg
 
     # Look for the DMG and ask the user if is isn't findable. It's probably possible
     # to automate this, however I don't feel it's appropriate at this time considering
@@ -339,17 +336,13 @@ convert_dmg_to_img() {
 
     if [ ! -r $IPHONE_SDK_IMG ] ; then
     	message_status "Converting `basename $IPHONE_SDK_DMG` to img format..."
-        $DMG extract $IPHONE_SDK_DMG $IPHONE_SDK_IMG
+        $DMG extract $IPHONE_SDK_DMG $IPHONE_SDK_IMG > /dev/null
         if [ ! -s $IPHONE_SDK_IMG ]; then
         	error "Failed to extract `basename $IPHONE_SDK_DMG`!"
         	rm $IPHONE_SDK_IMG
         	exit 1
         fi
     fi
-}
-
-cleanup_tmp() {
-    pushd $TMP_DIR && rm -fR * && popd
 }
 
 extract_headers() {
@@ -373,7 +366,7 @@ extract_headers() {
     fi
     message_status "Extracting `basename $IPHONE_PKG`..."
 
-    cleanup_tmp
+    rm -fR $TMP_DIR/*
 
     cp $IPHONE_PKG $TMP_DIR/iphone.pkg
     cd $TMP_DIR
@@ -383,7 +376,7 @@ extract_headers() {
     cat Payload | cpio -i -d 
     mv Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ${SDKS_DIR}
 
-    cleanup_tmp
+    rm -fR $TMP_DIR/*
 
     message_status "Extracting `basename $MACOSX_PKG`..."
 
@@ -395,7 +388,7 @@ extract_headers() {
     cat Payload | cpio -i -d 
     mv SDKs/MacOSX10.5.sdk ${SDKS_DIR}
 
-    cleanup_tmp
+    rm -fR $TMP_DIR/*
 
     message_status "Unmounting iPhone SDK img..."
     sudo umount $MNT_DIR
@@ -406,17 +399,19 @@ extract_headers() {
 # If we can't find the firmware file we try to download it from the
 # apple download urls above.
 extract_firmware() {
+   [ ! -x $VFDECRYPT ] && build_vfdecrypt
+   [ ! -x $DMG ] && build_xpwn_dmg
 
-    if [ -z "$FW_FILE" ] && [ ls ${FW_DIR}/*${TOOLCHAIN_VERSION}*.ipsw ]; then
-    	FW_FILE=`ls ${FW_DIR}/*${TOOLCHAIN_VERSION}*.ipsw`
-    	if [ $? ] || [ `echo ${FW_FILE} | wc -w` > 1 ]; then
+    if [ -z "$FW_FILE" ]; then
+    	echo "${FW_DIR}/*${TOOLCHAIN_VERSION}*.ipsw"
+    	FW_FILE=`ls ${FW_DIR}/*${TOOLCHAIN_VERSION}*.ipsw 2>/dev/null`
+    	if [ ! $? ] && [[ `echo ${FW_FILE} | wc -w` > 1 ]]; then
     		error "I attempted to search for the correct firmware version, but"
     		error "it looks like you have several ipsw files. Please specify"
     		error "one like so:"
     		error "./toolchain.sh firmware /path/to/firmware/here.ipsw"
     		exit 1
     	fi
-    	FW_FILE=`basename ${FW_FILE}`
     fi
 
     if [ ! -r "$FW_FILE" ] ; then
@@ -425,16 +420,18 @@ extract_firmware() {
     	if [ "$REPLY" != "y" ] && [ "$REPLY" != "yes" ]; then 
 	    	read -p "Do you want me to download it (Y/n)?"
 	    	if [ "$REPLY" != "n" ] && [ "$REPLY" != "no" ]; then
-			$APPLE_DL_URL = $(cat firmware.list | awk '$1 ~ /'"^${TOOLCHAIN_VERSION}$"'/ && $2 ~ /^iPhone\(3G\)$/ { print $3; }')
+			APPLE_DL_URL=$(cat firmware.list | awk '$1 ~ /'"^${TOOLCHAIN_VERSION}$"'/ && $2 ~ /^iPhone\(3G\)$/ { print $3; }')
+			FW_FILE=`basename "${APPLE_DL_URL}"`
 			if [ ! $APPLE_DL_URL ] ; then
 			    error "Can't find a download url for the toolchain version and platform specified."
 			    error "You may have to download it manually.".
 			    exit 1;
 			else 
-			    message_status "Downloading: $APPLE_DL_URL"
+			    message_status "Downloading: $FW_FILE"
 			    cd $TMP_DIR
-			    wget $APPLE_DL_URL
-			    mv $FIRMWARE $FW_DIR
+			    wget -nc -c $APPLE_DL_URL
+			    mv $FW_FILE $FW_DIR
+			    FW_FILE=$FW_DIR/$FW_FILE
 			fi
 		else
 			error "I need the firmware image to build the toolchain."
@@ -458,11 +455,18 @@ extract_firmware() {
 
     # Retrieve information from the firmware image we downloaded so we know
     # which file to decrypt and which key to use to decrypt it
-    FM_DEVICE_CLASS=$(plist_key DeviceClass "/" "${TMP_DIR}/Restore.plist")
+    FW_DEVICE_CLASS=$(plist_key DeviceClass "/" "${TMP_DIR}/Restore.plist")
     FW_PRODUCT_VERSION=$(plist_key ProductVersion "/" "${TMP_DIR}/Restore.plist")
     FW_BUILD_VERSION=$(plist_key ProductBuildVersion "/" "${TMP_DIR}/Restore.plist")
-    FW_BUILD_VERSION=$(plist_key User "/RestoreRamDisks/" "${TMP_DIR}/Restore.plist")
+    FW_RESTORE_RAMDISK=$(plist_key User "/RestoreRamDisks/" "${TMP_DIR}/Restore.plist")
     FW_RESTORE_SYSTEMDISK=$(plist_key User "/SystemRestoreImages/" "${TMP_DIR}/Restore.plist")
+    
+    cecho bold "Firmware Details"
+    echo "Device Class: ${FW_DEVICE_CLASS}"
+    echo "Product Version: ${FW_PRODUCT_VERSION}"
+    echo "Build Version: ${FW_BUILD_VERSION}"
+    echo "Restore RamDisk: ${FW_RESTORE_RAMDISK}"
+    echo "Restore Image: ${FW_RESTORE_SYSTEMDISK}"
     
     message_status "Unzipping `basename $FW_RESTORE_SYSTEMDISK`..."
     unzip -d "${TMP_DIR}" -o "${FW_FILE}" "${FW_RESTORE_SYSTEMDISK}"
@@ -482,9 +486,9 @@ extract_firmware() {
 
     message_status "Starting vfdecrypt with decryption key $DECRYPTION_KEY_SYSTEM..."
     cd "${TMP_DIR}"
-    $( $VFDECRYPT -i"${FW_RESTORE_SYSTEMDISK}" \
+    $VFDECRYPT -i"${FW_RESTORE_SYSTEMDISK}" \
                    -o"${FW_RESTORE_SYSTEMDISK}.decrypted"\
-                   -k"$DECRYPTION_KEY_SYSTEM" )
+                   -k"$DECRYPTION_KEY_SYSTEM" > /dev/null
 
     if [ ! -s "${FW_RESTORE_SYSTEMDISK}.decrypted" ]; then
     	error "Decryption of `basename $FW_RESTORE_SYSTEMDISK` failed!"
@@ -502,7 +506,7 @@ extract_firmware() {
 
     if [ ! -r ${FW_SYSTEM_DMG} ] ; then
     	message_status "Extracting decrypted dmg..."
-        $DMG extract "${FW_RESTORE_SYSTEMDISK}.decrypted" ${FW_SYSTEM_DMG}
+        $DMG extract "${FW_RESTORE_SYSTEMDISK}.decrypted" ${FW_SYSTEM_DMG} > /dev/null
     fi
 
     message_status "Trying to mount `basename ${FW_SYSTEM_DMG}`..."
@@ -510,7 +514,7 @@ extract_firmware() {
     echo -e "\tsudo mount -t hfsplus -o loop \"${FW_SYSTEM_DMG}\" \"${MNT_DIR}\""
     sudo mount -t hfsplus -o loop "${FW_SYSTEM_DMG}" "${MNT_DIR}"
     cd "${MNT_DIR}"
-    message_status "Copying required components of the firmware..."m
+    message_status "Copying required components of the firmware..."
     sudo cp -Ra * "${FW_SYSTEM_DIR}"
     sudo chown -R `id --user`:`id --group` $FW_SYSTEM_DIR
     cd ${HERE}
@@ -861,18 +865,17 @@ toolchain_env() {
 }
 
 message_action "Preparing the environment"
+cecho bold "Toolchain version: ${TOOLCHAIN_VERSION}"
 toolchain_env
 check_commands
 check_packages
 check_dirs
-build_tools
-cleanup_tmp
 message_status "Environment is ready"
 
 case $1 in
 	headers)
 		message_action "Getting the header files"
-		toolchain_extract_headers
+		toolchain_extract_headerstoolchain_extract_headers
 		;;
 	    
 	darwin_sources)
@@ -900,7 +903,14 @@ case $1 in
 		message_action "Extracting firmware files"
 		toolchain_system_files
 		;;
-
+	clean)
+		# This is more of a debugging method, not meant for general consumption
+		rm -Rf files
+		rm -Rf sdks
+		rm -Rf tools
+		rm -Rf toolchain
+		rm -Rf tmp
+		;;
 	build)
 		message_action "Building the toolchain"
 		toolchain_build
