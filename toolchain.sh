@@ -31,71 +31,49 @@ TOOLCHAIN_VERSION="2.2"
 # Default is /home/loginname/iphonedev
 IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain"
 
-# How to use this script
+# Usage
 # ======================
 #
-# 1. set your prefered IPHONEDEV_DIR. All files and the
-#    complete toolchain will reside there.
+# 1. Configure $IPHONEDEV_DIR and $TOOLCHAIN_VERSION to desired settings.
+#    The script will operate entirely within $IPHONEDEV_DIR. Basic sanity
+#    checks against the $TOOLCHAIN_VERSION are included.
 #
-# 2. ./toolchain.sh headers
-# 3. ./toolchain.sh firmware
-# 4. ./toolchain.sh darwin_sources [YourAppleID] [YourPassword]
-# 5. ./toolchain.sh build
+# 2. Run these commands in order:
+# 	./toolchain.sh headers
+# 	./toolchain.sh firmware
+# 	./toolchain.sh darwin_sources
+# 	./toolchain.sh build
+#    OR simply run:
+#	./toolchain.sh all
 #
-# In general the resulting toolchain has following file layout
-# (for better reading I skip $IPHONEDEV_DIR):
-#
-# ./files
-# ./files/iphone_sdk_final.dmg
-# ./files/fw
-# ./files/fw/iPhone1,1_2.0_5A347_Restore.ipsw (and/or other firmware.ipsw)
-# ./files/fw/2.0_5A347/system (the extracted rootfs of your favorite fw)
-# ./files/fw/current -> symlink to ./files/fw/YourFirmware/system
-# ./files/darwin_sources/... (files needed for the saurik toolchain)
-# ./files/mnt (we mount temporarily some dmg/img via mount -o loop)
-# ./SDKs/iPhoneOS2.{version}.sdk (the extracted SDK from iphone_sdk_final.dmg)
-# ./SDKs/MacOSX10.5.sdk  (extracted SDK from iphone_sdk_final.dmg)
-# ./tmp
-# ./toolchain/bld   (layout from www.saurik.com/id/4)
-# ./toolchain/pre   (all dirs are build by the script)
-# ./toolchain/src
-# ./toolchain/sys
-# ./tools/vfdecrypt... (will automatically downloaded)
-# ./tools/xpwn         (will automatically downloaded)
-# 
-# 
-# The first time this script is started the tools in ./tools are
-# downloaded and compiled.
-#
-# source ./toolchain.sh all
-#   Perform all stages.
+# ./toolchain.sh all
+#   Perform all stages in the order defined below. See each individual
+#   stage for details.
 #
 # ./toolchain.sh headers
-#   Extract SDKs from the iphone_sdk.
-#   Results in ready extracted ./SDKs/iPhoneOS2.{version}.sdk 
-#   and MacOSX10.5.sdk
+#   Extract OSX and iPhone SDK headers from the iPhone SDK image. You
+#   will need to have the image available to provide to the script. This
+#   is not downloaded automatically. Results extracted to
+#   $IPHONEDEV_DIR/SDKs/iPhoneOS2.{version}.sdk and
+#   $IPHONEDEV_DIR/SDKs/MacOSX10.5.sdk
 #
 # ./toolchain.sh firmware
-#   Eventually downloads the firmware you defined in $FIRMWARE above
-#   if not copied to ./files/fw/...
-#   Now searches for decryptions-keys and tries to extract the
-#   root-filesystem of the firmware to ./files/fw/{FirmwareVersion}/system.
-#   The symlink ./files/fw/current is automatically set to the
-#   extracted system.
+#   Extract iPhone or iPod touch firmware located in
+#   $IPHONEDEV_DIR/files/firmware/ or downloads firmware appropriate to the
+#   toolchain version automatically using firmware.list. Now searches for
+#   decryptions-keys and tries to extract the root-filesystem of the
+#   firmware to ./files/fw/{FirmwareVersion}/system. The symlink
+#   ./files/fw/current is automatically set to the extracted system.
+#
+# ./toolchain.sh darwin_sources
+#   You will need to register at developer.apple.com or have a valid account.
+#   You may specify APPLE_ID and APPLE_PASSWORD environment variables to avoid
+#   prompting.
 #
 # ./toolchain.sh build
-#   Starts the build process decribed by saurik. This script
-#   uses the same paths under $IPHONEDEV_DIR/toolchain/...
-#   Please download some needed packages from apple. You have
-#   to register yourself as developer on developer.apple.com
-#   These packages should be copied to ./files/darwin_sources
-#
-#   or use: 
-#
-# ./toolchain.sh darwin_sources [apple id] [apple password]
-#   Download the darwin sources from http://www.opensource.apple.com.
-#   You previously need to register at developer.apple.com.
-#
+#   Starts the build process decribed by saurik in
+#   http://www.saurik.com/id/4. This script uses the same paths under
+#   $IPHONEDEV_DIR/toolchain/
 
 FILES_DIR="${IPHONEDEV_DIR}/files"
 SDKS_DIR="${IPHONEDEV_DIR}/sdks"
@@ -857,14 +835,19 @@ toolchain_build() {
 
 }
 
-message_action "Preparing the environment"
-cecho bold "Toolchain version: ${TOOLCHAIN_VERSION}"
-check_commands
-check_packages
-message_status "Environment is ready"
+check_environment() {
+	[ $TOOLCHAIN_CHECKED ] && return
+	message_action "Preparing the environment"
+	cecho bold "Toolchain version: ${TOOLCHAIN_VERSION}"
+	check_commands
+	check_packages
+	message_status "Environment is ready"
+}
 
 case $1 in
 	all)
+		check_environment
+		export TOOLCHAIN_CHECKED=1
 		./toolchain.sh headers
 		./toolchain.sh darwin_sources
 		./toolchain.sh firmware
@@ -874,12 +857,13 @@ case $1 in
 		([ "$REPLY" == "y" ] || [ "$REPLY" == "yes" ]) && ./toolchain.sh clean
 		;;
 	headers)
+		check_environment
 		message_action "Getting the header files"
 		toolchain_extract_headers
 		;;
 	    
 	darwin_sources)
-
+		check_environment
 		# Make sure we have the Apple ID and password
 		if [ "$APPLE_ID" == "" ] || [ "$APPLE_PASSWORD" == "" ]; then
 			echo "You're going to need an Apple Developer Connection ID and password."
@@ -897,10 +881,19 @@ case $1 in
 		error "to automatically download the required Darwin sources."
 		fi
 		;;
+
 	firmware)
+		check_environment
 		message_action "Extracting firmware files"
 		toolchain_system_files
 		;;
+
+	build)
+		check_environment
+		message_action "Building the toolchain"
+		toolchain_build
+		;;
+
 	clean)
 		message_status "Cleaning up..."
 		
@@ -922,10 +915,32 @@ case $1 in
 		read -p "Do you want me to remove the firmware image(s) (y/N)? "
 		( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ] ) && rm -Rf "${FW_DIR}"
 		;;
-	build)
-		message_action "Building the toolchain"
-		toolchain_build
+
+	*)
+		BOLD=$(tput bold)
+		ENDF=$(tput sgr0)
+		TAB="\t"
+		echo    "toolchain.sh [ all | headers | darwin_sources | firmware | build | clean ]"
+		echo
+		echo -e "    ${BOLD}all${ENDF}"
+		echo -e "    ${TAB}Perform all steps in order: headers, darwin_sources,"
+		echo -e "    ${TAB}firmware, build and clean."
+		echo
+		echo -e "    ${BOLD}headers${ENDF}"
+		echo -e "    ${TAB}Extract headers from an iPhone SDK dmg."
+		echo
+		echo -e "    ${BOLD}darwin_sources${ENDF}"
+		echo -e "    ${TAB}Retrieve required Apple OSS components."
+		echo
+		echo -e "    ${BOLD}firmware${ENDF}"
+		echo -e "    ${TAB}Downloads and extracts iPhone an firmware image for the"
+		echo -e "    ${TAB}toolchain version."
+		echo
+		echo -e "    ${BOLD}build${ENDF}"
+		echo -e "    ${TAB}Builds acquires and builds the toolchain sources."
+		echo
+		echo -e "    ${BOLD}clean${ENDF}"
+		echo -e "    ${TAB}Remove source files, extracted dmgs and ipsws and temporary"
+		echo -e "    ${TAB}files, leaving only the toolchain."
 		;;
 esac
-
-message_action "Done!"
