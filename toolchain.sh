@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Copyright (c) 2008 iphonedevlinux <iphonedevlinux@googlemail.com>
+# Copyright (c) 2008, 2009 m4dm4n <m4dm4n@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation
@@ -126,8 +127,8 @@ IPHONEWIKI_KEY_URL="http://www.theiphonewiki.com/wiki/index.php?title=VFDecrypt_
 AID_LOGIN="https://daw.apple.com/cgi-bin/WebObjects/DSAuthWeb.woa/wa/login?appIdKey=D236F0C410E985A7BB866A960326865E7F924EB042FA9A161F6A628F0291F620&path=/darwinsource/tarballs/apsl/cctools-667.8.0.tar.gz"
 DARWIN_SOURCES_FILES_DIR="$FILES_DIR/darwin_sources"
 
-NEEDED_COMMANDS="git-clone git-pull gcc cmake make sudo mount xar cpio tar wget unzip"
-NEEDED_PACKAGES="libssl-dev libbz2-dev gawk gobjc bison flex"
+NEEDED_COMMANDS="git-clone git-pull gcc cmake make sudo mount xar cpio tar wget unzip gawk"
+NEEDED_PACKAGES="libssl-dev libbz2-dev gobjc bison flex"
 
 HERE=`pwd`
 
@@ -222,9 +223,7 @@ plist_key() {
 		/<\/dict>/ { sub(/[a-zA-Z0-9]*\/$/, "", path);}
 		/<((string)|(integer))>.*<\/((string)|(integer))>/ {
 			if(lastKey == "'"${PLIST_KEY}"'" && path == "'"${PLIST_PATH}"'") {
-				sub(/^.*<((string)|(integer))>/,"", $0);
-				sub(/<\/((string)|(integer))>.*$/,"", $0);
-				print $0;
+				sub(/^.*<\/?((string)|(integer))>/,"", $0); print;
 			}
 		}'
 }
@@ -552,7 +551,7 @@ toolchain_download_darwin_sources() {
 		error "Oh dear, I can't seem to log you in! There was a problem"
 		error "retrieving the login form session ID. Apple probably"
 		error "changed something on their site."
-		error "Installation of iPhone Toolchain 2.2 cannot proceed."
+		error "Installation of the toolchain cannot proceed."
 		exit 1
 	fi
 
@@ -581,7 +580,7 @@ toolchain_download_darwin_sources() {
 	echo "Login successful."
 
 	# Need to accept the license agreement
-	echo "Accepting APSL license agreement on your behalf..."
+	echo "Accepting APSL agreement on your behalf..."
 	wget --quiet --load-cookies=cookies.tmp \
 		--keep-session-cookies --post-data="APSLrev=2.0&querystr=&acceptBtn=Yes%2C+I+Accept" \
 		-O - "http://www.opensource.apple.com/cgi-bin/apslreg.cgi" &> /dev/null
@@ -589,7 +588,7 @@ toolchain_download_darwin_sources() {
 
 	# Get what we're here for
 	message_status "Attempting to download tool sources..."
-	wget --no-clobber --keep-session-cookies --load-cookies=cookies.tmp --input-file=${HERE}/darwin-tools.list
+	wget --max-redirect=0 --no-clobber --keep-session-cookies --load-cookies=cookies.tmp --input-file=${HERE}/darwin-tools.list
 	message_status "Finished downloading!"
 
 	rm cookies.tmp
@@ -878,21 +877,28 @@ toolchain_env() {
 
 message_action "Preparing the environment"
 cecho bold "Toolchain version: ${TOOLCHAIN_VERSION}"
-toolchain_env
+toolchain_env # Does this need to be called here?
 check_commands
 check_packages
-check_dirs
+check_dirs # Shouldn't these be created as required?
 message_status "Environment is ready"
 
 case $1 in
+	all)
+		./toolchain.sh headers
+		./toolchain.sh darwin_sources
+		./toolchain.sh firmware
+		./toolchain.sh build
+		
+		read -p "Do you want to clean up the source files used to build the toolchain? (y/N)"
+		([ "$REPLY" == "y" ] || [ "$REPLY" == "yes" ]) && ./toolchain.sh clean
+		;;
 	headers)
 		message_action "Getting the header files"
 		toolchain_extract_headers
 		;;
 	    
 	darwin_sources)
-		APPLE_ID=$2
-		APPLE_PASSWORD=$3
 
 		# Make sure we have the Apple ID and password
 		if [ "$APPLE_ID" == "" ] || [ "$APPLE_PASSWORD" == "" ]; then
@@ -912,12 +918,16 @@ case $1 in
 		fi
 		;;
 	firmware)
-		FW_FILE=$2
 		message_action "Extracting firmware files"
 		toolchain_system_files
 		;;
 	clean)
 		message_status "Cleaning up..."
+		
+		for file in ${FW_DIR}/*; do
+			[ -d "${file}" ] && rm -Rf "${file}"
+		done
+		rm -f "${FW_DIR}/current"	
 		rm -Rf "${MNT_DIR}"
 		rm -Rf "${DARWIN_SOURCES_FILES_DIR}"
 		rm -Rf "${SDKS_DIR}"
@@ -932,13 +942,10 @@ case $1 in
 		read -p "Do you want me to remove the firmware image(s) (y/N)? "
 		( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ] ) && rm -Rf "${FW_DIR}"
 		;;
-	
 	build)
 		message_action "Building the toolchain"
 		toolchain_build
 		;;
-	*)
-	break ;;
 esac
 
 message_action "Done!"
