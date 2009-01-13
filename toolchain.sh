@@ -105,7 +105,7 @@ TMP_DIR="${IPHONEDEV_DIR}/tmp"
 MNT_DIR="${FILES_DIR}/mnt"
 FW_DIR="${FILES_DIR}/firmware"
 
-IPHONE_SDK="iphone_sdk_for_iphone_os_${TOOLCHAIN_VERSION}__final.dmg"
+IPHONE_SDK="iphone_sdk_for_iphone_os_${TOOLCHAIN_VERSION}_*_final.dmg"
 IPHONE_SDK_DMG="${FILES_DIR}/${IPHONE_SDK}"
 IPHONE_SDK_IMG="${FILES_DIR}/iphone_sdk.img"
 
@@ -143,7 +143,7 @@ cecho() {
 			grey)	echo -n "$(tput setaf 6)";;
 			white)	echo -n "$(tput setaf 7)";;
 			bold)	echo -n "$(tput bold)";;
-			*) 	;;
+			*) 	break;;
 		esac
 		shift
 	done
@@ -421,7 +421,7 @@ extract_firmware() {
     	if [ "$REPLY" != "y" ] && [ "$REPLY" != "yes" ]; then 
 	    	read -p "Do you want me to download it (Y/n)?"
 	    	if [ "$REPLY" != "n" ] && [ "$REPLY" != "no" ]; then
-			APPLE_DL_URL=$(cat firmware.list | awk '$1 ~ /'"^${TOOLCHAIN_VERSION}$"'/ && $2 ~ /^iPhone\(3G\)$/ { print $3; }')
+			APPLE_DL_URL=$(cat ${HERE}/firmware.list | awk '$1 ~ /'"^${TOOLCHAIN_VERSION}$"'/ && $2 ~ /^iPhone\(3G\)$/ { print $3; }')
 			FW_FILE=`basename "${APPLE_DL_URL}"`
 			if [ ! $APPLE_DL_URL ] ; then
 			    error "Can't find a download url for the toolchain version and platform specified."
@@ -473,11 +473,11 @@ extract_firmware() {
     unzip -d "${TMP_DIR}" -o "${FW_FILE}" "${FW_RESTORE_SYSTEMDISK}"
 
     message_status "Decrypting firmware image..."
-    if [ ! "$DECRYPTION_KEY_SYSTEM" ] ; then
+    if [ -z "$DECRYPTION_KEY_SYSTEM" ] ; then
         echo "We need the decryption key for `basename $FW_RESTORE_SYSTEMDISK`."
         echo "I'm going to try to fetch it from $IPHONEWIKI_KEY_URL...."
         DECRYPTION_KEY_SYSTEM=$( wget --quiet -O - $IPHONEWIKI_KEY_URL | awk '
-            /name=\"'"${FW_PRODUCT_VERSION}"'.*'"${FW_BUILD_VERSION}"'/ { found = 1; }
+            /name=\"'"${FW_PRODUCT_VERSION}"'.*'"${FW_BUILD_VERSION}"'/ { found = 1; IGNORECASE = 1; }
             /<p>.*$/ && found { sub(/.*<p>/, "", $0); print toupper($0); exit; }' )
         if [ ! "$DECRYPTION_KEY_SYSTEM" ] ; then
             error "Sorry, no decryption key for system partition found!"
@@ -488,9 +488,7 @@ extract_firmware() {
 
     echo "Starting vfdecrypt with decryption key: $DECRYPTION_KEY_SYSTEM"
     cd "${TMP_DIR}"
-    $VFDECRYPT -i"${FW_RESTORE_SYSTEMDISK}" \
-                   -o"${FW_RESTORE_SYSTEMDISK}.decrypted"\
-                   -k"$DECRYPTION_KEY_SYSTEM" &> /dev/null
+    $VFDECRYPT -i"${FW_RESTORE_SYSTEMDISK}" -o"${FW_RESTORE_SYSTEMDISK}.decrypted" -k "$DECRYPTION_KEY_SYSTEM" &> /dev/null
 
     if [ ! -s "${FW_RESTORE_SYSTEMDISK}.decrypted" ]; then
     	error "Decryption of `basename $FW_RESTORE_SYSTEMDISK` failed!"
@@ -514,7 +512,12 @@ extract_firmware() {
     message_status "Trying to mount `basename ${FW_SYSTEM_DMG}`..."
     echo "I am about to mount a file using the command:"
     echo -e "\tsudo mount -t hfsplus -o loop \"${FW_SYSTEM_DMG}\" \"${MNT_DIR}\""
-    sudo mount -t hfsplus -o loop "${FW_SYSTEM_DMG}" "${MNT_DIR}"
+    
+    if ! sudo mount -t hfsplus -o loop "${FW_SYSTEM_DMG}" "${MNT_DIR}" ; then
+    	error "Failed to mount $(basename "${FW_SYSTEM_DMG}")."
+    	exit 1
+    fi
+    
     cd "${MNT_DIR}"
     message_status "Copying required components of the firmware..."
     sudo cp -Ra * "${FW_SYSTEM_DIR}"
@@ -576,6 +579,13 @@ toolchain_download_darwin_sources() {
 	fi
 
 	echo "Login successful."
+
+	# Need to accept the license agreement
+	echo "Accepting APSL license agreement on your behalf..."
+	wget --quiet --load-cookies=cookies.tmp \
+		--keep-session-cookies --post-data="APSLrev=2.0&querystr=&acceptBtn=Yes%2C+I+Accept" \
+		-O - "http://www.opensource.apple.com/cgi-bin/apslreg.cgi" &> /dev/null
+	
 
 	# Get what we're here for
 	message_status "Attempting to download tool sources..."
@@ -732,7 +742,7 @@ toolchain_build() {
     for framework in AudioToolbox AudioUnit CoreAudio QuartzCore Foundation; do
     	echo $framework
     	mkdir -p $framework
-        cp -a "${leopardlib}"/"${framework}".framework/Versions/Current/Headers/* "${framework}"
+        cp -a "${leopardlib}"/"${framework}".framework/Versions/*/Headers/* "${framework}"
         cp -af "${iphonelib}"/"${framework}".framework/Headers/* "${framework}"
     done
 
@@ -743,7 +753,7 @@ toolchain_build() {
     for framework in AppKit Cocoa CoreData CoreVideo JavaScriptCore OpenGL WebKit; do
     	echo $framework
     	mkdir -p $framework
-    	cp -a "${leopardlib}"/"${framework}".framework/Versions/Current/Headers/* $framework
+    	cp -a "${leopardlib}"/"${framework}".framework/Versions/*/Headers/* $framework
     done
 
     echo "Application Services"
@@ -909,8 +919,7 @@ case $1 in
 	clean)
 		message_status "Cleaning up..."
 		rm -Rf "${MNT_DIR}"
-		rm -Rf "${FW_DIR}/current/*"
-		rm -f "${FW_DIR}/current"
+		rm -Rf "${DARWIN_SOURCES_FILES_DIR}"
 		rm -Rf "${SDKS_DIR}"
 		rm -Rf "${TOOLS_DIR}"
 		rm -Rf "${TMP_DIR}"
@@ -918,10 +927,10 @@ case $1 in
 		rm -Rf "${build}"
 		
 		read -p "Do you want me to remove the SDK dmg (y/N)? "
-		( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y"] ) && rm "${IPHONE_SDK_DMG}"
+		( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ] ) && rm "${IPHONE_SDK_DMG}"
 		
 		read -p "Do you want me to remove the firmware image(s) (y/N)? "
-		( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y"] ) && rm -Rf "${FW_DIR}"
+		( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ] ) && rm -Rf "${FW_DIR}"
 		;;
 	
 	build)
