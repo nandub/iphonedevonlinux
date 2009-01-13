@@ -25,7 +25,7 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 # What version of the toolchain are we building?
-TOOLCHAIN_VERSION="2.1"
+TOOLCHAIN_VERSION="2.2"
 
 # Build everything relative to IPHONEDEV_DIR
 # Default is /home/loginname/iphonedev
@@ -485,7 +485,7 @@ toolchain_extract_firmware() {
     cd "${MNT_DIR}"
     message_status "Copying required components of the firmware..."
     sudo cp -Ra * "${FW_VERSION_DIR}"
-    sudo chown -R `id --user`:`id --group` $FW_SYSTEM_DIR
+    sudo chown -R `id --user`:`id --group` $FW_VERSION_DIR
     message_status "Unmounting..."
     sudo umount "${MNT_DIR}"
     
@@ -493,7 +493,7 @@ toolchain_extract_firmware() {
         rm "${FW_DIR}/current";
     fi
 
-    ln -s "${FW_SYSTEM_DIR}" "${FW_DIR}/current"
+    ln -s "${FW_VERSION_DIR}" "${FW_DIR}/current"
     
     # Cleanup
     rm "${TMP_DIR}/$FW_RESTORE_SYSTEMDISK" "${TMP_DIR}/${FW_RESTORE_SYSTEMDISK}.decrypted" \
