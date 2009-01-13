@@ -278,18 +278,20 @@ toolchain_extract_headers() {
 
     rm -fR $TMP_DIR/*
 
-    # These folders are version named so the SDK version can be verified
-    if [ ! -d Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ]; then
-    	error "I couldn't find the folder iPhoneOS${TOOLCHAIN_VERSION}.sdk. Perhaps this is"
-    	error "not the right SDK dmg for toolchain ${TOOLCHAIN_VERSION}."
-    fi
-
     cp $IPHONE_PKG $TMP_DIR/iphone.pkg
     cd $TMP_DIR
     xar -xf iphone.pkg Payload
     mv Payload Payload.gz
     gunzip Payload.gz
     cat Payload | cpio -id "*.h"
+    
+    # These folders are version named so the SDK version can be verified
+    if [ ! -d Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ]; then
+    	error "I couldn't find the folder iPhoneOS${TOOLCHAIN_VERSION}.sdk. Perhaps this is"
+    	error "not the right SDK dmg for toolchain ${TOOLCHAIN_VERSION}."
+    	exit 1
+    fi
+    
     mv Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ${SDKS_DIR}
 
     rm -fR $TMP_DIR/*
@@ -312,9 +314,7 @@ toolchain_extract_headers() {
     rm $IPHONE_SDK_IMG
 }
 
-# If we can't find the firmware file we try to download it from the
-# apple download urls above.
-extract_firmware() {
+toolchain_extract_firmware() {
    ([ ! -x $VFDECRYPT ] || [ ! -x $DMG ]) && build_tools
    mkdir -p $FW_DIR
    mkdir -p $MNT_DIR
@@ -330,7 +330,9 @@ extract_firmware() {
     		exit 1
     	fi
     fi
-
+    
+    # If we can't find the firmware file we try to download it from the
+    # apple download urls above.
     if [ ! -r "$FW_FILE" ] ; then
     	echo "I can't find the firmware image for iPhone/iPod Touch $TOOLCHAIN_VERSION."
     	read -p "Do you have it (y/N)?"
@@ -529,14 +531,8 @@ toolchain_download_darwin_sources() {
 	rm cookies.tmp
 }
 
-toolchain_system_files() {
-    build_vfdecrypt
-    extract_firmware
-}
-
-# This is more or less copy/paste from www.saurik.com/id/4
-# Modified fairly heavily by m4dm4n for SDK 2.2, fixing some missing
-# hardlinks and incorrect patches
+# Follows the build routine for the toolchain described by saurik here:
+# www.saurik.com/id/4
 toolchain_build() {
 
     local TOOLCHAIN="${IPHONEDEV_DIR}/toolchain"
@@ -556,7 +552,7 @@ toolchain_build() {
     	local TARGET="arm-apple-darwin8"
     fi
 
-    [ ! -d "$TOOLCHAIN" ] && mkdir -p "${TOOLCHAIN}"
+    mkdir -p "${TOOLCHAIN}"
 
     cd "${DARWIN_SOURCES_DIR}"
     message_status "Finding and extracting archives..."
@@ -566,7 +562,7 @@ toolchain_build() {
     # tar to ignore this, and they are constantly in the way so I'll use this hack.
     chmod -R 755 *
 
-    mkdir -p "$(dirname $TOOLCHAIN/sys)"
+    mkdir -p "$TOOLCHAIN/sys"
     cd "$TOOLCHAIN/sys"
 
     if [ ! -d "${FW_DIR}/current" ] ; then
@@ -759,29 +755,24 @@ toolchain_build() {
     mkdir -p "${CCTOOLS_DIR}"
     svn co http://iphone-dev.googlecode.com/svn/branches/odcctools-9.2-ld "${CCTOOLS_DIR}"
 
-
-    message_status "Building cctools-iphone..."
+    message_status "Configuring cctools-iphone..."
     mkdir -p "$TOOLCHAIN/pre"
-    cecho bold "Build progress logged to: toolchain/bld/cctools-iphone/make.log"
     mkdir -p "$TOOLCHAIN/bld/cctools-iphone"
     cd "$TOOLCHAIN/bld/cctools-iphone"
-    export CFLAGS="-m32"
-    export LDFLAGS="-m32"
-    "${CCTOOLS_DIR}"/configure \
+    CFLAGS="-m32" LDFLAGS="-m32" "${CCTOOLS_DIR}"/configure \
         --target="${TARGET}" \
         --prefix="$TOOLCHAIN/pre" \
         --disable-ld64
-    make clean
+    make clean > /dev/null
+    message_status "Building cctools-iphone..."
+    cecho bold "Build progress logged to: toolchain/bld/cctools-iphone/make.log"
     if ! ( make &>make.log && make install &>install.log ); then
     	error "Build & install failed. Check make.log and install.log"
     fi
 
-    message_status "Building gcc-4.2-iphone..."
-    cecho bold "Build progress logged to: toolchain/bld/gcc-4.2-iphone/make.log"
-    mkdir -p "$TOOLCHAIN/bld"
-    cd "$TOOLCHAIN/bld"
-    mkdir gcc-4.2-iphone
-    cd gcc-4.2-iphone
+    message_status "Configuring gcc-4.2-iphone..."
+    mkdir -p "$TOOLCHAIN/bld/gcc-4.2-iphone"
+    cd "$TOOLCHAIN/bld/gcc-4.2-iphone"
     "${GCC_DIR}"/configure \
         --target="${TARGET}" \
         --prefix="$TOOLCHAIN/pre" \
@@ -791,7 +782,9 @@ toolchain_build() {
         --with-ld="$TOOLCHAIN"/pre/bin/"${TARGET}"-ld \
         --enable-wchar_t=no \
         --with-gxx-include-dir=/usr/include/c++/4.0.0
-    make clean
+    make clean > /dev/null
+    message_status "Building gcc-4.2-iphone..."
+    cecho bold "Build progress logged to: toolchain/bld/gcc-4.2-iphone/make.log"
     if ! ( make -j2 &>make.log && make install &>install.log ); then
     	error "Build & install failed. Check make.log and install.log"
     fi
@@ -821,11 +814,14 @@ case $1 in
 		
 		read -p "Do you want to clean up the source files used to build the toolchain? (y/N)"
 		([ "$REPLY" == "y" ] || [ "$REPLY" == "yes" ]) && ./toolchain.sh clean
+		message_action "All stages completed. The toolchain is ready."
 		;;
+		
 	headers)
 		check_environment
-		message_action "Getting the header files"
+		message_action "Getting the header files..."
 		toolchain_extract_headers
+		message_action "Headers extracted."
 		;;
 	    
 	darwin_sources)
@@ -839,25 +835,28 @@ case $1 in
 		fi
 
 		if [ "$APPLE_ID" != "" ] && [ "$APPLE_PASSWORD" != "" ]; then
-		message_action "Downloading Darwin sources"
-		echo "Apple ID: $APPLE_ID"
-		toolchain_download_darwin_sources
+			message_action "Downloading Darwin sources..."
+			echo "Apple ID: $APPLE_ID"
+			toolchain_download_darwin_sources
+			message_action "Darwin sources retrieved."
 		else
-		error "You must provide a valid Apple ID and password combination in order "
-		error "to automatically download the required Darwin sources."
+			error "You must provide a valid Apple ID and password combination in order "
+			error "to automatically download the required Darwin sources."
 		fi
 		;;
 
 	firmware)
 		check_environment
-		message_action "Extracting firmware files"
-		toolchain_system_files
+		message_action "Extracting firmware files..."
+		toolchain_extract_firmware
+		message_action "Firmware extracted."
 		;;
 
 	build)
 		check_environment
-		message_action "Building the toolchain"
+		message_action "Building the toolchain..."
 		toolchain_build
+		message_action "Toolchain built."
 		;;
 
 	clean)
