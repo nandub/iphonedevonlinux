@@ -143,7 +143,7 @@ cecho() {
 			grey)	echo -n "$(tput setaf 6)";;
 			white)	echo -n "$(tput setaf 7)";;
 			bold)	echo -n "$(tput bold)";;
-			*) 	break;;
+			*) 	;;
 		esac
 		shift
 	done
@@ -405,7 +405,6 @@ extract_firmware() {
    [ ! -x $DMG ] && build_xpwn_dmg
 
     if [ -z "$FW_FILE" ]; then
-    	echo "${FW_DIR}/*${TOOLCHAIN_VERSION}*.ipsw"
     	FW_FILE=`ls ${FW_DIR}/*${TOOLCHAIN_VERSION}*.ipsw 2>/dev/null`
     	if [ ! $? ] && [[ `echo ${FW_FILE} | wc -w` > 1 ]]; then
     		error "I attempted to search for the correct firmware version, but"
@@ -878,7 +877,7 @@ message_status "Environment is ready"
 case $1 in
 	headers)
 		message_action "Getting the header files"
-		toolchain_extract_headerstoolchain_extract_headers
+		toolchain_extract_headers
 		;;
 	    
 	darwin_sources)
@@ -910,12 +909,19 @@ case $1 in
 	clean)
 		message_status "Cleaning up..."
 		rm -Rf "${MNT_DIR}"
-		rm -Rf "${FW_DIR}"
+		rm -Rf "${FW_DIR}/current/*"
+		rm -f "${FW_DIR}/current"
 		rm -Rf "${SDKS_DIR}"
 		rm -Rf "${TOOLS_DIR}"
 		rm -Rf "${TMP_DIR}"
 		rm -Rf "${TOOLCHAIN}/src"
 		rm -Rf "${build}"
+		
+		read -p "Do you want me to remove the SDK dmg (y/N)? "
+		( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y"] ) && rm "${IPHONE_SDK_DMG}"
+		
+		read -p "Do you want me to remove the firmware image(s) (y/N)? "
+		( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y"] ) && rm -Rf "${FW_DIR}"
 		;;
 	
 	build)
