@@ -116,13 +116,13 @@ DECRYPTION_KEY_SYSTEM=""
 CURRENT_SYSTEM_DIR="current"
 
 FILES_DIR="${IPHONEDEV_DIR}/files"
-SDKS_DIR="${IPHONEDEV_DIR}/SDKs"
+SDKS_DIR="${IPHONEDEV_DIR}/sdks"
 TOOLS_DIR="${IPHONEDEV_DIR}/tools"
 XPWN_DIR="${TOOLS_DIR}/xpwn"
 MIG_DIR="${TOOLS_DIR}/mig"
-MNT_DIR="${FILES_DIR}/mnt"
 TMP_DIR="${IPHONEDEV_DIR}/tmp"
-FW_DIR="${FILES_DIR}/fw"
+MNT_DIR="${TMP_DIR}/mnt"
+FW_DIR="${FILES_DIR}/firmware"
 FW_FILE="${FW_DIR}/${FIRMWARE}"
 
 IPHONE_SDK="iphone_sdk_for_iphone_os_${TOOLCHAIN_VERSION}__final.dmg"
@@ -171,7 +171,7 @@ NEEDED_PACKAGES="libssl-dev libbz2-dev gawk gobjc bison flex"
 HERE=`pwd`
 
 # Just some internal tracking
-declare -i ERROR_COUNT
+# declare -i ERROR_COUNT
 
 # Beautified echo commands
 cecho() {
@@ -221,21 +221,6 @@ check_commands() {
     fi
 }
 
-check_dirs() {
-    for d in \
-        $IPHONEDEV_DIR \
-        $FILES_DIR \
-        $DARWIN_SOURCES_FILES_DIR \
-        $SDKS_DIR \
-        $TOOLS_DIR \
-        $MNT_DIR \
-        $TMP_DIR \
-        $FW_DIR ; do
-
-        [ ! -d $d ] && mkdir $d
-    done
-}
-
 check_packages() {
 	local missing
 	for p in $NEEDED_PACKAGES; do
@@ -251,167 +236,20 @@ check_packages() {
 	fi
 }
 
-build_tools() {
-    build_xpwn_dmg
-    build_vfdecrypt
+check_dirs() {
+    for d in \
+        $IPHONEDEV_DIR \
+        $FILES_DIR \
+        $DARWIN_SOURCES_FILES_DIR \
+        $SDKS_DIR \
+        $TOOLS_DIR \
+        $MNT_DIR \
+        $TMP_DIR \
+        $FW_DIR ; do
+
+        [ ! -d $d ] && mkdir $d
+    done
 }
-
-
-build_xpwn_dmg() {
-    [ ! -d $TOOLS_DIR ] && mkdir -p $TOOLS_DIR
-    [ -x $DMG ] && return
-
-    # Maybe we have an xpwn clone ?
-    if [ -d $XPWN_DIR ] ; then
-        if [ -d "$XPWN_DIR/.git" ] ; then
-            # we update the current git of XPWN
-            message_status "Updating xpwn git..."
-            if cd "$XPWN_DIR" && ! git pull $XPWN_GIT master; then
-            	error "Failed to pull xpwn git. Check errors."
-            	exit 1
-            fi
-        else
-            error "There is an xpwn dir at $XPWN_DIR without a checked out git repository!"
-            exit 1
-        fi
-    else 
-        message_status "Checking out xpwn git..."
-        if ! git clone $XPWN_GIT $XPWN_DIR; then
-        	error "Failed to clone xpwn git. Check errors."
-        	exit 1
-        fi
-    fi
-
-    cd $XPWN_DIR
-
-    message_status "Making xpwn..."
-    [ -r Makefile ] && make clean
-    if cmake CMakeLists.txt && cd dmg && make; then
-	message_status "xpwn built."
-	if cp dmg $DMG; then
-		# Get rid of the xpwn stuff, we don't need it anymore
-		message_status "Removing xpwn remnants."
-		cd $HERE && rm -Rf $XPWN_DIR
-	else
-		error "Failed to copy xpwn DMG extractor to ${DMG}."
-		exit 1
-	fi
-    else
-    	error "Failed to make xpwn. Check errors."
-    	exit 1
-    fi
-}
-
-build_vfdecrypt() {
-    if [ ! -x $VFDECRYPT ] ; then
-    	message_status "Downloading and building vfdecrypt..."
-        cd $TOOLS_DIR
-        [ ! -r $VFDECRYPT_TGZ ] && wget $VFDECRYPT_URL
-        tar xfzv $VFDECRYPT_TGZ vfdecrypt.c
-        gcc -o vfdecrypt vfdecrypt.c -lssl 
-        rm $VFDECRYPT_TGZ vfdecrypt.c
-    fi
-}
-
-build_mig() {
-    if [ ! -x $MIG ] ; then
-        cd $TOOLS_DIR
-        cvs -z3 -d$MIG_CVS co mig
-        cd $MIG_DIR
-
-    fi
-}
-
-convert_dmg_to_img() {
-    [ ! -x $DMG ] && error "$DMG not found/executable." && exit 1
-
-    # Look for the DMG and ask the user if is isn't findable
-    if [ ! -r $IPHONE_SDK_IMG ] && [ ! -r $IPHONE_SDK_DMG ] ; then
-    	error "I'm having trouble finding the iPhone SDK. I looked here:"
-    	error $IPHONE_SDK_DMG
-    	read -p "Do you have the SDK (y/N)? "
-    	if [ "$REPLY" != "y" ]; then
-    		error "You will need to download the SDK before you can build the toolchain. The"
-    		error "required file can be obtained from: http://developer.apple.com/iphone/"
-    		exit 1
-    	fi
-    	echo "Please enter the full path to the dmg containing the SDK:"
-    	read IPHONE_SDK_DMG
-    	if [ ! -r $IPHONE_SDK_DMG ] ; then
-    		error "Sorry, I can't find the file!"
-    		error "You will need to download the SDK before you can build the toolchain. The"
-    		error "required file can be obtained from: http://developer.apple.com/iphone/"
-    		exit 1
-    	fi
-    fi
-
-    if [ ! -r $IPHONE_SDK_IMG ] ; then
-    	message_status "Converting `basename $IPHONE_SDK_DMG` to img format..."
-    	echo "" # Spacer
-        $DMG extract $IPHONE_SDK_DMG $IPHONE_SDK_IMG
-        if [ ! -s $IPHONE_SDK_IMG ]; then
-        	error "Failed to extract `basename $IPHONE_SDK_DMG`!"
-        	rm $IPHONE_SDK_IMG
-        	exit 1
-        fi
-    fi
-}
-
-cleanup_tmp() {
-    local pushdir
-    pushdir=`pwd`
-    cd $TMP_DIR
-    rm -fR *
-    cd "$pushdir"
-}
-
-
-extract_headers() {
-    [ ! -d ${MNT_DIR} ] && mkdir ${MNT_DIR}
-    [ ! -d ${SDKS_DIR} ] && mkdir ${SDKS_DIR}
-    
-    # Make sure we don't already have these
-    if [ -d "${SDKS_DIR}/iPhoneOS${TOOLCHAIN_VERSION}.sdk" ] && [ -d "${SDKS_DIR}/MacOSX10.5.sdk" ]; then
-    	return
-    fi
-
-    message_status "Trying to mount the iPhone SDK img..."
-    if ! sudo mount -o loop $IPHONE_SDK_IMG $MNT_DIR ; then
-    	error "Failed to mount ${IPHONE_SDK_IMG} at ${MNT_DIR}!"
-    	exit 1
-    fi
-    message_status "Extracting `basename $IPHONE_PKG`..."
-
-    cleanup_tmp
-
-    cp $IPHONE_PKG $TMP_DIR/iphone.pkg
-    cd $TMP_DIR
-    xar -xf iphone.pkg Payload
-    mv $TMP_DIR/Payload $TMP_DIR/Payload.gz
-    gunzip $TMP_DIR/Payload.gz
-    cat $TMP_DIR/Payload | cpio -i -d 
-    mv $TMP_DIR/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ${SDKS_DIR}
-
-    cleanup_tmp
-
-    message_status "Extracting `basename $MACOSX_PKG`..."
-
-    cp $MACOSX_PKG $TMP_DIR/macosx.pkg
-    cd $TMP_DIR 
-    xar -xf macosx.pkg Payload
-    mv $TMP_DIR/Payload $TMP_DIR/Payload.gz
-    gunzip $TMP_DIR/Payload.gze
-    cat $TMP_DIR/Payload | cpio -i -d 
-    mv $TMP_DIR/SDKs/MacOSX10.5.sdk ${SDKS_DIR}
-
-    cleanup_tmp
-
-    message_status "Unmounting iPhone SDK img..."
-    sudo umount $MNT_DIR
-    message_status "Removing `basename $IPHONE_SDK_IMG`..."
-    rm $IPHONE_SDK_IMG
-}
-
 
 # This is a hack of a HACK. I need some bash script
 # to read Apples .plist files. I found some in IPOD
@@ -444,15 +282,11 @@ extract_headers() {
 # 
 # The awk code is nearly unmaintainable. Sorry.
 
-#declare -a Return_Array;
-#declare Return_Value;
-
 defaults() {
     local keys="$1"
     local data="$2"
 
     for k in $keys ; do
-        #echo "key: $k  data: $data"
         defaults_parser "$k" "$data" && data=$Return_Val
     done
 }
@@ -463,8 +297,7 @@ defaults_parser() {
     local command_line
     local scalar_mode
     local mode
-
-    Return_Val=""
+    local Return_Val=""
 
     if [ "${key#\[*\]}" = "$key" ] ; then 
         mode="scalar"
@@ -527,9 +360,186 @@ defaults_parser() {
     fi
 }
 
+build_tools() {
+    build_xpwn_dmg
+    build_vfdecrypt
+}
+
+# Builds the XPWN dmg decryption tools, which we will use later to convert dmgs to
+# images, so that we can mount them.
+build_xpwn_dmg() {
+    [ ! -d $TOOLS_DIR ] && mkdir -p $TOOLS_DIR
+    [ -x $DMG ] && return
+
+    # Check for xpwn and try to update it if we're working off the git
+    # repo that should have been extracted earlier
+    if [ -d $XPWN_DIR ] ; then
+        if [ -d "$XPWN_DIR/.git" ] ; then
+            message_status "Updating xpwn git..."
+            if cd "$XPWN_DIR" && ! git pull $XPWN_GIT master; then
+            	error "Failed to pull xpwn git. Check errors."
+            	exit 1
+            fi
+        fi
+    else 
+        message_status "Checking out xpwn git..."
+        if ! git clone $XPWN_GIT $XPWN_DIR; then
+        	error "Failed to clone xpwn git. Check errors."
+        	exit 1
+        fi
+    fi
+
+    cd $XPWN_DIR
+
+    message_status "Building xpwn's dmg-to-iso tool..."
+    [ -r Makefile ] && make clean
+    if cmake CMakeLists.txt && cd dmg && make; then
+	message_status "Build finished."
+	if cp dmg $DMG; then
+		# Get rid of the xpwn stuff, we don't need it anymore
+		message_status "Removing xpwn remnants."
+		cd $HERE && rm -Rf $XPWN_DIR
+	else
+		error "Failed to copy xpwn's dmg-to-iso tool to ${DMG}."
+		exit 1
+	fi
+    else
+    	error "Failed to make xpwn. Check errors."
+    	exit 1
+    fi
+}
+
+# Retrieve and build vfdecrypt, which is used for decrypting the ipsw firmware images
+# which we will download automatically.
+build_vfdecrypt() {
+    if [ ! -x $VFDECRYPT ] ; then
+    	message_status "Downloading and building vfdecrypt..."
+        cd $TOOLS_DIR
+        
+        # Try to locate the tool source or ask the user if we can't find it. As a last
+        # resort we can download it.
+        if [ ! -r $VFDECRYPT_TGZ ]; then
+        	echo "I can't find the VFDecrypt source (`$VFDECRYPT_TGZ`)."
+        	read -p "Do you have it (y/N)? "
+        	if [ "$REPLY" == "yes" ] || [ "$REPLY" == "y"]; then
+        		read -p "Location of VFDecrypt: " VFDECRYPT_TGZ
+        	else
+        		read -p "Do you want me to download it (Y/n)? "
+        		[ "$REPLY" != "no" ] && [ "$REPLY" != "n" ] && wget $VFDECRYPT_URL
+        	fi
+        fi
+        
+        if [ -r $VFDECRYPT_TGZ ]; then
+        	tar xfzv $VFDECRYPT_TGZ vfdecrypt.c
+        	if ! gcc -o vfdecrypt vfdecrypt.c -lssl; then
+        		error "Failed to build VFdecrypt! Check errors."
+        		exit 1
+        	fi
+        	rm $VFDECRYPT_TGZ vfdecrypt.c
+        else
+        	error "I can't find the VFdecrypt source or executable."
+        	error "Building the toolchain cannot proceed"
+        	exit 1
+        fi
+    fi
+}
+
+convert_dmg_to_img() {
+    [ ! -x $DMG ] && error "$DMG not found/executable." && exit 1
+
+    # Look for the DMG and ask the user if is isn't findable. It's probably possible
+    # to automate this, however I don't feel it's appropriate at this time considering
+    # that the download size would force the user to leave the script running unattended
+    # for too long.
+    if [ ! -r $IPHONE_SDK_IMG ] && [ ! -r $IPHONE_SDK_DMG ] ; then
+    	error "I'm having trouble finding the iPhone SDK. I looked here:"
+    	error $IPHONE_SDK_DMG
+    	read -p "Do you have the SDK (y/N)? "
+    	if [ "$REPLY" != "y" ]; then
+    		error "You will need to download the SDK before you can build the toolchain. The"
+    		error "required file can be obtained from: http://developer.apple.com/iphone/"
+    		exit 1
+    	fi
+    	echo "Please enter the full path to the dmg containing the SDK:"
+    	read IPHONE_SDK_DMG
+    	if [ ! -r $IPHONE_SDK_DMG ] ; then
+    		error "Sorry, I can't find the file!"
+    		error "You will need to download the SDK before you can build the toolchain. The"
+    		error "required file can be obtained from: http://developer.apple.com/iphone/"
+    		exit 1
+    	fi
+    fi
+
+    if [ ! -r $IPHONE_SDK_IMG ] ; then
+    	message_status "Converting `basename $IPHONE_SDK_DMG` to img format..."
+        $DMG extract $IPHONE_SDK_DMG $IPHONE_SDK_IMG
+        if [ ! -s $IPHONE_SDK_IMG ]; then
+        	error "Failed to extract `basename $IPHONE_SDK_DMG`!"
+        	rm $IPHONE_SDK_IMG
+        	exit 1
+        fi
+    fi
+}
+
+cleanup_tmp() {
+    pushd $TMP_DIR
+    rm -fR *
+    popd
+}
+
+extract_headers() {
+    [ ! -d ${MNT_DIR} ] && mkdir ${MNT_DIR}
+    [ ! -d ${SDKS_DIR} ] && mkdir ${SDKS_DIR}
+    
+    # Make sure we don't already have these
+    if [ -d "${SDKS_DIR}/iPhoneOS${TOOLCHAIN_VERSION}.sdk" ] && [ -d "${SDKS_DIR}/MacOSX10.5.sdk" ]; then
+    	echo "SDKs seem to already be extracted."
+    	return
+    fi
+
+    # Inform the user why we suddenly need their password
+    message_status "Trying to mount the iPhone SDK img..."
+    echo "In order to extract `basename $IPHONE_SDK_IMG`, I am going to run:"
+    echo -e "\tsudo mount -o loop $IPHONE_SDK_IMG $MNT_DIR"
+    
+    if ! sudo mount -o loop $IPHONE_SDK_IMG $MNT_DIR ; then
+    	error "Failed to mount ${IPHONE_SDK_IMG} at ${MNT_DIR}!"
+    	exit 1
+    fi
+    message_status "Extracting `basename $IPHONE_PKG`..."
+
+    cleanup_tmp
+
+    cp $IPHONE_PKG $TMP_DIR/iphone.pkg
+    cd $TMP_DIR
+    xar -xf iphone.pkg Payload
+    mv Payload Payload.gz
+    gunzip Payload.gz
+    cat Payload | cpio -i -d 
+    mv Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ${SDKS_DIR}
+
+    cleanup_tmp
+
+    message_status "Extracting `basename $MACOSX_PKG`..."
+
+    cp $MACOSX_PKG $TMP_DIR/macosx.pkg
+    cd $TMP_DIR 
+    xar -xf macosx.pkg Payload
+    mv Payload Payload.gz
+    gunzip Payload.gz
+    cat Payload | cpio -i -d 
+    mv SDKs/MacOSX10.5.sdk ${SDKS_DIR}
+
+    cleanup_tmp
+
+    message_status "Unmounting iPhone SDK img..."
+    sudo umount $MNT_DIR
+    message_status "Removing `basename $IPHONE_SDK_IMG`..."
+    rm $IPHONE_SDK_IMG
+}
+
 # If we can't find the firmware file we try to download it from the
 # apple download urls above.
-#
 extract_firmware() {
     if [ ! -r "$FW_FILE" ] ; then
     	echo "I can't find the firmware image for iPhone/iPod Touch $TOOLCHAIN_VERSION (`basename $FW_FILE`)."
