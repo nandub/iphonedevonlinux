@@ -26,18 +26,13 @@
 # What version of the toolchain are we building?
 TOOLCHAIN_VERSION="2.2"
 
+# The target platform, which is either 2G or 3G. I have yet to determine
+# if this is important
+PHONE_VERSION="3G"
+
 # Build everything relative to IPHONEDEV_DIR
 # Default is /home/loginname/iphonedev
 IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain/"
-
-# This is downloaded automatically
-FIRMWARE="iPhone1,1_2.2_5G77_Restore.ipsw"
-
-# Search the web. If this is empty this script
-# searches itself on 
-# http://www.theiphonewiki.com/wiki/index.php?title=VFDecrypt_Keys
-# for the key.
-DECRYPTION_KEY_SYSTEM=""
 
 # How to use this script
 # ======================
@@ -111,10 +106,6 @@ DECRYPTION_KEY_SYSTEM=""
 #   You previously need to register at developer.apple.com.
 #
 
-# this is the name with the symlink to the current firmware
-# system folder
-CURRENT_SYSTEM_DIR="current"
-
 FILES_DIR="${IPHONEDEV_DIR}/files"
 SDKS_DIR="${IPHONEDEV_DIR}/sdks"
 TOOLS_DIR="${IPHONEDEV_DIR}/tools"
@@ -123,7 +114,6 @@ MIG_DIR="${TOOLS_DIR}/mig"
 TMP_DIR="${IPHONEDEV_DIR}/tmp"
 MNT_DIR="${TMP_DIR}/mnt"
 FW_DIR="${FILES_DIR}/firmware"
-FW_FILE="${FW_DIR}/${FIRMWARE}"
 
 IPHONE_SDK="iphone_sdk_for_iphone_os_${TOOLCHAIN_VERSION}__final.dmg"
 IPHONE_SDK_DMG="${FILES_DIR}/${IPHONE_SDK}"
@@ -143,23 +133,7 @@ MIG_URL="ftp://ftp.gnu.org/gnu/mig/mig-1.3.tar.gz"
 VFDECRYPT_TGZ="vfdecrypt-linux.tar.gz"
 VFDECRYPT_URL="http://iphone-elite.googlecode.com/files/${VFDECRYPT_TGZ}"
 IPHONEWIKI_KEY_URL="http://www.theiphonewiki.com/wiki/index.php?title=VFDecrypt_Keys"
-
-# Apple (URL's see: http://modmyifone.com/wiki/index.php/IPhone_Firmware_Download_Links)
-# Updated to include firmware 2.2 from (http://www.iclarified.com/entry/index.php?enid=750)
-
-FW_DOWNLOAD_URL="http://appldnld.apple.com.edgesuite.net/content.info.apple.com/iPhone"
-
-FW_DOWNLOAD_1G_220="$FW_DOWNLOAD_URL/061-5779.20081120.Pt5yH/iPhone1,1_2.2_5G77_Restore.ipsw"
-FW_DOWNLOAD_1G_210="$FW_DOWNLOAD_URL/061-5202.20080909.gkbEj/iPhone1,1_2.1_5F136_Restore.ipsw"
-FW_DOWNLOAD_1G_202="$FW_DOWNLOAD_URL/061-5246.20080818.2V0hO/iPhone1,1_2.0.2_5C1_Restore.ipsw"
-FW_DOWNLOAD_1G_201="$FW_DOWNLOAD_URL/061-5135.20080729.Vfgtr/iPhone1,1_2.0.1_5B108_Restore.ipsw"
-FW_DOWNLOAD_1G_200="$FW_DOWNLOAD_URL/061-4956.20080710.V50OI/iPhone1,1_2.0_5A347_Restore.ipsw"
-
-FW_DOWNLOAD_3G_220="$FW_DOWNLOAD_URL/061-5778.20081120.Aqw4R/iPhone1,2_2.2_5G77_Restore.ipsw"
-FW_DOWNLOAD_3G_210="$FW_DOWNLOAD_URL/061-5198.20080909.K3294/iPhone1,2_2.1_5F136_Restore.ipsw"
-FW_DOWNLOAD_3G_202="$FW_DOWNLOAD_URL/061-5241.20080818.t5Fv3/iPhone1,2_2.0.2_5C1_Restore.ipsw"
-FW_DOWNLOAD_3G_201="$FW_DOWNLOAD_URL/061-5134.20080729.Q2W3E/iPhone1,2_2.0.1_5B108_Restore.ipsw"
-FW_DOWNLOAD_3G_200="$FW_DOWNLOAD_URL/061-5241.20080818.t5Fv3/iPhone1,2_2.0.2_5C1_Restore.ipsw"
+FIRMWARE_FILE_LIST="http://www.iclarified.com/entry/index.php?enid=750"
 
 # Download information for Apple's open source components
 AID_LOGIN="https://daw.apple.com/cgi-bin/WebObjects/DSAuthWeb.woa/wa/login?appIdKey=D236F0C410E985A7BB866A960326865E7F924EB042FA9A161F6A628F0291F620&path=/darwinsource/tarballs/apsl/cctools-667.8.0.tar.gz"
@@ -450,26 +424,40 @@ extract_headers() {
 # If we can't find the firmware file we try to download it from the
 # apple download urls above.
 extract_firmware() {
+
+    if [ -z "$FW_FILE" ] && [ ls ${FW_DIR}/*${TOOLCHAIN_VERSION}*.ipsw ]; then
+    	FW_FILE=`ls ${FW_DIR}/*${TOOLCHAIN_VERSION}*.ipsw`
+    	if [ $? ] || [ `echo ${FW_FILE} | wc -w` > 1 ]; then
+    		error "I attempted to search for the correct firmware version, but"
+    		error "it looks like you have several ipsw files. Please specify"
+    		error "one like so:"
+    		error "./toolchain.sh firmware /path/to/firmware/here.ipsw"
+    		exit 1
+    	fi
+    	FW_FILE=`basename ${FW_FILE}`
+    fi
+
     if [ ! -r "$FW_FILE" ] ; then
-    	echo "I can't find the firmware image for iPhone/iPod Touch $TOOLCHAIN_VERSION (`basename $FW_FILE`)."
+    	echo "I can't find the firmware image for iPhone/iPod Touch $TOOLCHAIN_VERSION."
     	read -p "Do you have it (y/N)?"
     	if [ "$REPLY" != "y" ] && [ "$REPLY" != "yes" ]; then 
 	    	read -p "Do you want me to download it (Y/n)?"
 	    	if [ "$REPLY" != "n" ] && [ "$REPLY" != "no" ]; then
-			message_status "Trying to download the firmware from apple"
-			for dl in ${!FW_DOWNLOAD_*} ; do
-			    url="${!dl}"
-			    if [ ! "${url/$FIRMWARE//}" = "$url" ] ; then
-				APPLE_DL_URL=$url;
-			    fi
-			done
+			message_status "Retrieving firmware file listing..."
+			APPLE_DL_URL=$(wget -O- -q $FIRMWARE_FILE_LIST | awk '
+			/'"${TOOLCHAIN_VERSION}"'(.0)? \('"${PHONE_VERSION}"'\):/ {
+				match($0,/'"${TOOLCHAIN_VERSION}"'(.0)? \('"${PHONE_VERSION}"'\): <a href=".*" target/)
+				$0 = substr($0, RSTART, RLENGTH)
+				sub(/^.*<a href="/, "", $0)
+				sub(/" target$/, "", $0)
+				print $0
+			}')
 			if [ ! $APPLE_DL_URL ] ; then
-			    error "Can't find a download url for requested firmware $FIRMWARE."
-			    error "Please check again. Your file should be found in $FW_DIR."
+			    error "Can't find a download url for the toolchain version and platform specified."
 			    error "You may have to download it manually.".
 			    exit 1;
 			else 
-			    message_status "Downloading from: $APPLE_DL_URL"
+			    message_status "Downloading: $APPLE_DL_URL"
 			    cd $TMP_DIR
 			    wget $APPLE_DL_URL
 			    mv $FIRMWARE $FW_DIR
@@ -544,29 +532,29 @@ extract_firmware() {
     fi
 
     message_status "Trying to mount `basename ${FW_SYSTEM_DMG}`..."
+    echo "I am about to mount a file using the command:"
+    echo -e "\tsudo mount -t hfsplus -o loop \"${FW_SYSTEM_DMG}\" \"${MNT_DIR}\""
     sudo mount -t hfsplus -o loop "${FW_SYSTEM_DMG}" "${MNT_DIR}"
     cd "${MNT_DIR}"
     message_status "Copying required components of the firmware..."m
     sudo cp -Ra * "${FW_SYSTEM_DIR}"
     sudo chown -R `id --user`:`id --group` $FW_SYSTEM_DIR
     cd ${HERE}
+    message_status "Unmounting..."
     sudo umount "${MNT_DIR}"
     
-    if [ -s "${FW_DIR}/${CURRENT_SYSTEM_DIR}" ] ; then
-        rm "${FW_DIR}/${CURRENT_SYSTEM_DIR}";
+    if [ -s "${FW_DIR}/current" ] ; then
+        rm "${FW_DIR}/current";
     fi
 
-    # we want something like this:
-    # .../files/fw/current -> .../files/fw/2.0_5A347
-    ln -s "${FW_SYSTEM_DIR}" "${FW_DIR}/${CURRENT_SYSTEM_DIR}"
+    ln -s "${FW_SYSTEM_DIR}" "${FW_DIR}/current"
     
-    # Remove spurious files
+    # Cleanup
     rm "${TMP_DIR}/$FW_RESTORE_SYSTEMDISK" "${TMP_DIR}/${FW_RESTORE_SYSTEMDISK}.decrypted" \
     	$FW_SYSTEM_DMG "${TMP_DIR}/Restore.plist"
 }
 
 toolchain_download_darwin_sources() {
-	# Set up the environment
 	cd $DARWIN_SOURCES_FILES_DIR
 
 	message_status "Trying to log you in to the Darwin sources repository..."
@@ -875,28 +863,12 @@ toolchain_build() {
     mkdir -p "${sysroot}"/"$(dirname "${prefix}")"
     ln -s "${prefix}" "${sysroot}"/"$(dirname "${prefix}")"
 
-#    for lib in crypto curses form gcc_s ncurses sqlite3 ssl xml2; do
-#        rm -f "${sysroot}"/usr/lib/lib${lib}.*
-#    done
-
-}
-
-getopt_simple() {
-    local tmp
-    until [ -z "$1" ]
-    do
-        tmp=$1               
-        parameter=${tmp%%=*}
-        value=${tmp##*=}
-        eval $parameter=$value
-        shift
-    done
 }
 
 toolchain_env() {
     export TOOLCHAIN="${IPHONEDEV_DIR}/toolchain"
     export apple="${FILES_DIR}/darwin_sources"
-    export iphonefs="${FW_DIR}/${CURRENT_SYSTEM_DIR}"
+    export iphonefs="${FW_DIR}/current"
     export target="arm-apple-darwin9"
     export leopardsdk="${SDKS_DIR}/MacOSX10.5.sdk"
     export leopardinc="${leopardsdk}/usr/include"
@@ -923,60 +895,44 @@ build_tools
 cleanup_tmp
 message_status "Environment is ready"
 
-APPLE_ID=""
-APPLE_PASSWORD=""
+case $1 in
+	headers)
+		message_action "Getting the header files"
+		toolchain_extract_headers
+		;;
+	    
+	darwin_sources)
+		APPLE_ID=$2
+		APPLE_PASSWORD=$3
 
-while test $# -gt 0 ; do
-    case $1 in
-        extractheaders | getheaders | headers)
-            shift
-            message_action "Getting the header files"
-            toolchain_extract_headers
-            ;;
-        darwin_sources)
-            shift
-            getopt_simple $1
-            shift
-            getopt_simple $1
-            shift
-            
-            # Make sure we have the Apple ID and password
-            if [ "$APPLE_ID" == "" ] || [ "$APPLE_PASSWORD" == "" ]; then
-    		echo "You're going to need an Apple Developer Connection ID and password."
-    		read -p "Apple ID: " APPLE_ID
-    		read -p "Password: " PASSWORD
-    	    fi
-    	    
-            if [ "$APPLE_ID" != "" ] && [ "$APPLE_PASSWORD" != "" ]; then
-            	message_action "Downloading Darwin sources"
-            	echo "Apple ID: $APPLE_ID"
-            	echo "Password: $APPLE_PASSWORD"
-            	toolchain_download_darwin_sources
-            else
-            	error "You must provide a valid Apple ID and password combination in order "
-            	error "to automatically download the required Darwin sources."
-            fi
-            
-            ;;
-        firmware | system | rootfs)
-            shift
-            message_action "Extracting firmware files"
-            toolchain_system_files
-            ;;
-        build )
-            shift
-            message_action "Building the toolchain"
-            toolchain_build
-            ;;
-       *)
-       break ;;
-  esac
-done
+		# Make sure we have the Apple ID and password
+		if [ "$APPLE_ID" == "" ] || [ "$APPLE_PASSWORD" == "" ]; then
+		echo "You're going to need an Apple Developer Connection ID and password."
+		read -p "Apple ID: " APPLE_ID
+		read -s -p "Password: " APPLE_PASSWORD
+		fi
 
-#if [[ $ERROR_COUNT > 0 ]]; then
-#	echo -e "\n\n"
-#	cecho bold red "Warning: $ERROR_COUNT errors encountered during operation."
-#	cecho bold red "Check output for error messages. Operation did not complete successfully."
-#fi
+		if [ "$APPLE_ID" != "" ] && [ "$APPLE_PASSWORD" != "" ]; then
+		message_action "Downloading Darwin sources"
+		echo "Apple ID: $APPLE_ID"
+		toolchain_download_darwin_sources
+		else
+		error "You must provide a valid Apple ID and password combination in order "
+		error "to automatically download the required Darwin sources."
+		fi
+		;;
+	firmware)
+		FW_FILE=$2
+		message_action "Extracting firmware files"
+		toolchain_system_files
+		;;
+
+	build)
+		message_action "Building the toolchain"
+		toolchain_build
+		;;
+	*)
+	break ;;
+esac
 
 message_action "Done!"
