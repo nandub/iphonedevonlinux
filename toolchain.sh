@@ -443,15 +443,7 @@ extract_firmware() {
     	if [ "$REPLY" != "y" ] && [ "$REPLY" != "yes" ]; then 
 	    	read -p "Do you want me to download it (Y/n)?"
 	    	if [ "$REPLY" != "n" ] && [ "$REPLY" != "no" ]; then
-			message_status "Retrieving firmware file listing..."
-			APPLE_DL_URL=$(wget -O- -q $FIRMWARE_FILE_LIST | awk '
-			/'"${TOOLCHAIN_VERSION}"'(.0)? \('"${PHONE_VERSION}"'\):/ {
-				match($0,/'"${TOOLCHAIN_VERSION}"'(.0)? \('"${PHONE_VERSION}"'\): <a href=".*" target/)
-				$0 = substr($0, RSTART, RLENGTH)
-				sub(/^.*<a href="/, "", $0)
-				sub(/" target$/, "", $0)
-				print $0
-			}')
+			$APPLE_DL_URL = $(cat firmware.list | awk '$1 ~ /'"${TOOLCHAIN_VERSION}"'/ && $2 ~ /iPhone (3G)/ { print $3; }')			
 			if [ ! $APPLE_DL_URL ] ; then
 			    error "Can't find a download url for the toolchain version and platform specified."
 			    error "You may have to download it manually.".
