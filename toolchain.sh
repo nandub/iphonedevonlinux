@@ -210,7 +210,7 @@ check_dirs() {
 }
 
 # Takes a plist string and does a very basic lookup of a particular key value,
-# given a key name an XPath style path to the key in terms of dict entries
+# given a key name and an XPath style path to the key in terms of dict entries
 plist_key() {
 	local PLIST_PATH="$2"
 	local PLIST_KEY="$1"
@@ -222,7 +222,9 @@ plist_key() {
 		/<\/dict>/ { sub(/[a-zA-Z0-9]*\/$/, "", path);}
 		/<((string)|(integer))>.*<\/((string)|(integer))>/ {
 			if(lastKey == "'"${PLIST_KEY}"'" && path == "'"${PLIST_PATH}"'") {
-				sub(/^.*<((string)|(integer))>/,"", $0); sub(/<\/((string)|(integer))>.*$/,"", $0); print $0;
+				sub(/^.*<((string)|(integer))>/,"", $0);
+				sub(/<\/((string)|(integer))>.*$/,"", $0);
+				print $0;
 			}
 		}'
 }
@@ -373,7 +375,7 @@ extract_headers() {
     xar -xf iphone.pkg Payload
     mv Payload Payload.gz
     gunzip Payload.gz
-    cat Payload | cpio -i -d 
+    cat Payload | cpio -id "*.h"
     mv Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ${SDKS_DIR}
 
     rm -fR $TMP_DIR/*
@@ -385,7 +387,7 @@ extract_headers() {
     xar -xf macosx.pkg Payload
     mv Payload Payload.gz
     gunzip Payload.gz
-    cat Payload | cpio -i -d 
+    cat Payload | cpio -id "*.h"
     mv SDKs/MacOSX10.5.sdk ${SDKS_DIR}
 
     rm -fR $TMP_DIR/*
@@ -906,12 +908,13 @@ case $1 in
 		toolchain_system_files
 		;;
 	clean)
-		# This is more of a debugging method, not meant for general consumption
-		rm -Rf files
-		rm -Rf sdks
-		rm -Rf tools
-		rm -Rf toolchain
-		rm -Rf tmp
+		message_status "Cleaning up..."
+		rm -Rf "${FILES_DIR}"
+		rm -Rf "${SDKS_DIR}"
+		rm -Rf "${TOOLS_DIR}"
+		rm -Rf "${TMP_DIR}"
+		rm -Rf "${TOOLCHAIN}/src"
+		rm -Rf "${build}"
 		;;
 	build)
 		message_action "Building the toolchain"
