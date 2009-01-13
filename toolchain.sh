@@ -25,7 +25,7 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 # What version of the toolchain are we building?
-TOOLCHAIN_VERSION="2.1"
+TOOLCHAIN_VERSION="2.2"
 
 # Build everything relative to IPHONEDEV_DIR
 # Default is /home/loginname/iphonedev
@@ -324,7 +324,7 @@ toolchain_extract_headers() {
     	exit 1
     fi
     
-    mv Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ${SDKS_DIR}
+    mv -f Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ${SDKS_DIR}
 
     rm -fR $TMP_DIR/*
 
@@ -334,7 +334,7 @@ toolchain_extract_headers() {
     cd $TMP_DIR 
     xar -xf macosx.pkg Payload
     zcat Payload | cpio -id "*.h"
-    mv SDKs/MacOSX10.5.sdk ${SDKS_DIR}
+    mv -f SDKs/MacOSX10.5.sdk ${SDKS_DIR}
 
     rm -fR $TMP_DIR/*
 
@@ -824,6 +824,51 @@ toolchain_build() {
 
 }
 
+class_dump() {
+	if [ -z $IPHONE_IP ]; then
+		echo "This step will extract Objective-C headers from the iPhone frameworks."
+		echo "To do this, you will need SSH access to an iPhone with class-dump"
+		echo "installed, which can be done through cydia."
+		read -p "What is your iPhone's IP address? " IPHONE_IP
+		[ -z $IPHONE_IP ] && exit 1
+	fi
+	message_status "Logging in to iphone as root@$IPHONE_IP..."
+	ssh root@$IPHONE_IP <<'COMMAND'
+		if [ -z `which class-dump` ]; then
+			echo "It doesn't look like class-dump is installed. Would you like me"
+			read -p "to try to install it (Y/n)? "
+			([ "$REPLY" == "n" ] || [ "$REPLY" == "no" ]) && exit 1
+			if [ -z `which apt-get` ]; then
+				echo "I can't install class-dump without cydia."
+				exit 1
+			fi
+			apt-get install class-dump
+		fi
+		
+		rm -Rf /tmp/Frameworks /tmp/PrivateFrameworks
+		for type in Frameworks PrivateFrameworks; do
+			cd /tmp
+			mkdir -p $type
+			cd $type
+			for framework in /System/Library/$type/*.framework; do
+				FW=`basename $framework .framework`
+				mkdir $FW
+				pushd $FW > /dev/null
+				class-dump -H $framework/$FW
+				popd > /dev/null
+			done
+		done
+COMMAND
+	if [ $? ]; then
+		error "Failed to export iPhone frameworks."
+		exit 1
+	fi
+	
+	message_status "Framework headers exported. Copying..."
+	scp root@$IPHONE_IP:/tmp/Frameworks/*  ${IPHONEDEV_DIR}/toolchain/sys/usr/include/
+	scp root@$IPHONE_IP:/tmp/PrivateFrameworks/*  ${IPHONEDEV_DIR}/toolchain/sys/usr/include/
+}
+
 check_environment() {
 	[ $TOOLCHAIN_CHECKED ] && return
 	message_action "Preparing the environment"
@@ -899,45 +944,8 @@ case $1 in
 	classdump)
 		check_environment
 		message_action "Preparing to classdump..."
-		if [ -z $IPHONE_IP ]; then
-			echo "This step will extract Objective-C headers from the iPhone frameworks."
-			echo "To do this, you will need SSH access to an iPhone with class-dump"
-			echo "installed, which can be done through cydia."
-			read -p "What is your iPhone's IP address? " IPHONE_IP
-			[ -z $IPHONE_IP ] && exit 1
-			message_status "Logging in to iphone as root@$IPHONE_IP..."
-			ssh root@$IPHONE_IP <<'COMMAND'
-				if [ -z `which class-dump` ]; then
-					echo "It doesn't look like class-dump is installed. Would you like me"
-					read -p "to try to install it (Y/n)? "
-					([ "$REPLY" == "n" ] || [ "$REPLY" == "no" ]) && exit 1
-					apt-get install class-dump
-				fi
-				
-				rm -Rf /tmp/Frameworks /tmp/PrivateFrameworks
-				for type in Frameworks PrivateFrameworks; do
-					cd /tmp
-					mkdir -p $type
-					cd $type
-					for framework in /System/Library/$type/*.framework; do
-						FW=`basename $framework .framework`
-						mkdir $FW
-						pushd $FW > /dev/null
-						class-dump -H $framework/$FW
-						popd > /dev/null
-					done
-				done
-COMMAND
-			if [ $? ]; then
-				error "Failed to export iPhone frameworks."
-				exit 1
-			fi
-			
-			message_status "Framework headers exported. Copying..."
-			scp root@$IPHONE_IP:/tmp/Frameworks/*  ${IPHONEDEV_DIR}/toolchain/sys/usr/include/
-			scp root@$IPHONE_IP:/tmp/PrivateFrameworks/*  ${IPHONEDEV_DIR}/toolchain/sys/usr/include/
-			message_action "Copy completed."
-		fi
+		class_dump
+		message_action "Copy completed."
 		;;
 
 	clean)
