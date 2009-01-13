@@ -25,7 +25,7 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 # What version of the toolchain are we building?
-TOOLCHAIN_VERSION="2.2"
+TOOLCHAIN_VERSION="2.1"
 
 # Build everything relative to IPHONEDEV_DIR
 # Default is /home/loginname/iphonedev
@@ -94,9 +94,6 @@ DMG="${TOOLS_DIR}/dmg2img"
 VFDECRYPT="${TOOLS_DIR}/vfdecrypt"
 MIG="${MIG_DIR}/mig"
 
-MACOSX_PKG="${MNT_DIR}/Packages/MacOSX10.5.pkg"
-IPHONE_PKG="${MNT_DIR}/Packages/iPhoneSDKHeadersAndLibs.pkg"
-
 # Tools
 DMG2IMG="http://vu1tur.eu.org/tools/download.pl?dmg2img-1.3.tar.gz"
 MIG_URL="ftp://ftp.gnu.org/gnu/mig/mig-1.3.tar.gz"
@@ -110,6 +107,16 @@ NEEDED_COMMANDS="git-clone git-pull gcc cmake make sudo mount xar cpio tar wget 
 NEEDED_PACKAGES="libssl-dev libbz2-dev gobjc bison flex"
 
 HERE=`pwd`
+
+# Compare two version strings and return a string indicating whether the first version number
+# is newer, older or equal to the second. This is quite dumb, but it works.
+vercmp() {
+	V1=`echo "$1" | sed -e 's/[^0-9]//g' | awk '{ printf "%0.10f", "0."$0 }'`
+	V2=`echo "$2" | sed -e 's/[^0-9]//g' | awk '{ printf "%0.10f", "0."$0 }'`
+	[[ $V1 > $V2 ]] && echo "newer"
+	[[ $V1 == $V2 ]] && echo "equal"
+	[[ $V1 < $V2 ]] && echo "older"
+}
 
 # Beautified echo commands
 cecho() {
@@ -237,8 +244,8 @@ toolchain_extract_headers() {
     # that the download size would force the user to leave the script running unattended
     # for too long.
     if [ ! -r $IPHONE_SDK_IMG ] && [ ! -r $IPHONE_SDK_DMG ] ; then
-    	error "I'm having trouble finding the iPhone SDK. I looked here:"
-    	error $IPHONE_SDK_DMG
+    	echo "I'm having trouble finding the iPhone SDK. I looked here:"
+    	echo $IPHONE_SDK_DMG
     	read -p "Do you have the SDK (y/N)? "
     	if [ "$REPLY" != "y" ]; then
     		error "You will need to download the SDK before you can build the toolchain. The"
@@ -274,16 +281,41 @@ toolchain_extract_headers() {
     	error "Failed to mount ${IPHONE_SDK_IMG} at ${MNT_DIR}!"
     	exit 1
     fi
-    message_status "Extracting `basename $IPHONE_PKG`..."
+
+    # Check the version of the SDK
+    SDK_VERSION=$(plist_key CFBundleShortVersionString "/" "${MNT_DIR}/iPhone SDK.mpkg/Contents/version.plist" | sed 's/^\([0-9].[0-9].[0-9]\).*$/\1/')
+    echo "SDK is version ${SDK_VERSION}"
+    
+    if [ "`vercmp $SDK_VERSION $TOOLCHAIN_VERSION`" == "older" ]; then
+    	error "We are trying to build toolchain ${TOOLCHAIN_VERSION} but this"
+    	error "SDK is ${SDK_VERSION}. Please download the latest SDK here:"
+    	error "http://developer.apple.com/iphone/"
+    	echo "Unmounting..."
+    	sudo umount -fl $MNT_DIR
+    	exit 1
+    fi
+    
+    if [[ "`vercmp $SDK_VERSION $TOOLCHAIN_VERSION`" == "newer" ]]; then
+    	PACKAGE="iPhoneSDK`echo $TOOLCHAIN_VERSION | sed 's/\./_/' `.pkg"
+    else
+    	PACKAGE="iPhoneSDKHeadersAndLibs.pkg"
+    fi
+
+    if [ ! -r ${MNT_DIR}/Packages/$PACKAGE ]; then
+    	error "I tried to extract $PACKAGE but I couldn't find it!"
+    	echo "Unmounting..."
+    	sudo umount -fl $MNT_DIR
+    	exit 1
+    fi
+    
+    message_status "Extracting `basename $PACKAGE`..."
 
     rm -fR $TMP_DIR/*
 
-    cp $IPHONE_PKG $TMP_DIR/iphone.pkg
+    cp ${MNT_DIR}/Packages/$PACKAGE $TMP_DIR/iphone.pkg
     cd $TMP_DIR
     xar -xf iphone.pkg Payload
-    mv Payload Payload.gz
-    gunzip Payload.gz
-    cat Payload | cpio -id "*.h"
+    zcat Payload | cpio -id "*.h"
     
     # These folders are version named so the SDK version can be verified
     if [ ! -d Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ]; then
@@ -296,20 +328,18 @@ toolchain_extract_headers() {
 
     rm -fR $TMP_DIR/*
 
-    message_status "Extracting `basename $MACOSX_PKG`..."
+    message_status "Extracting MacOSX10.5.pkg..."
 
-    cp $MACOSX_PKG $TMP_DIR/macosx.pkg
+    cp ${MNT_DIR}/Packages/MacOSX10.5.pkg $TMP_DIR/macosx.pkg
     cd $TMP_DIR 
     xar -xf macosx.pkg Payload
-    mv Payload Payload.gz
-    gunzip Payload.gz
-    cat Payload | cpio -id "*.h"
+    zcat Payload | cpio -id "*.h"
     mv SDKs/MacOSX10.5.sdk ${SDKS_DIR}
 
     rm -fR $TMP_DIR/*
 
     message_status "Unmounting iPhone SDK img..."
-    sudo umount $MNT_DIR
+    sudo umount -fl $MNT_DIR
     message_status "Removing `basename $IPHONE_SDK_IMG`..."
     rm $IPHONE_SDK_IMG
 }
@@ -546,7 +576,7 @@ toolchain_build() {
     local GCC_DIR="$TOOLCHAIN/src/gcc"
     local CSU_DIR="$TOOLCHAIN/src/csu"
     export PATH="$TOOLCHAIN/pre/bin":"${PATH}" 
-    if [[ $TOOLCHAIN_VERSION > 2.0 ]]; then
+    if [ "`vercmp $TOOLCHAIN_VERSION 2.0`" == "newer" ]; then
     	local TARGET="arm-apple-darwin9"
     else
     	local TARGET="arm-apple-darwin8"
@@ -798,6 +828,13 @@ check_environment() {
 	[ $TOOLCHAIN_CHECKED ] && return
 	message_action "Preparing the environment"
 	cecho bold "Toolchain version: ${TOOLCHAIN_VERSION}"
+	
+	if [[ "`vercmp $TOOLCHAIN_VERSION 2.0`" == "older" ]]; then
+		error "The toolchain builder is only capable of building toolchains targeting"
+		error "iPhone SDK >=2.0. Sorry."
+		exit 1
+	fi
+	
 	check_commands
 	check_packages
 	message_status "Environment is ready"
@@ -857,6 +894,50 @@ case $1 in
 		message_action "Building the toolchain..."
 		toolchain_build
 		message_action "Toolchain built."
+		;;
+	
+	classdump)
+		check_environment
+		message_action "Preparing to classdump..."
+		if [ -z $IPHONE_IP ]; then
+			echo "This step will extract Objective-C headers from the iPhone frameworks."
+			echo "To do this, you will need SSH access to an iPhone with class-dump"
+			echo "installed, which can be done through cydia."
+			read -p "What is your iPhone's IP address? " IPHONE_IP
+			[ -z $IPHONE_IP ] && exit 1
+			message_status "Logging in to iphone as root@$IPHONE_IP..."
+			ssh root@$IPHONE_IP <<'COMMAND'
+				if [ -z `which class-dump` ]; then
+					echo "It doesn't look like class-dump is installed. Would you like me"
+					read -p "to try to install it (Y/n)? "
+					([ "$REPLY" == "n" ] || [ "$REPLY" == "no" ]) && exit 1
+					apt-get install class-dump
+				fi
+				
+				rm -Rf /tmp/Frameworks /tmp/PrivateFrameworks
+				for type in Frameworks PrivateFrameworks; do
+					cd /tmp
+					mkdir -p $type
+					cd $type
+					for framework in /System/Library/$type/*.framework; do
+						FW=`basename $framework .framework`
+						mkdir $FW
+						pushd $FW > /dev/null
+						class-dump -H $framework/$FW
+						popd > /dev/null
+					done
+				done
+COMMAND
+			if [ $? ]; then
+				error "Failed to export iPhone frameworks."
+				exit 1
+			fi
+			
+			message_status "Framework headers exported. Copying..."
+			scp root@$IPHONE_IP:/tmp/Frameworks/*  ${IPHONEDEV_DIR}/toolchain/sys/usr/include/
+			scp root@$IPHONE_IP:/tmp/PrivateFrameworks/*  ${IPHONEDEV_DIR}/toolchain/sys/usr/include/
+			message_action "Copy completed."
+		fi
 		;;
 
 	clean)
