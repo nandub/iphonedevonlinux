@@ -909,13 +909,15 @@ case $1 in
 		;;
 	clean)
 		message_status "Cleaning up..."
-		rm -Rf "${FILES_DIR}"
+		rm -Rf "${MNT_DIR}"
+		rm -Rf "${FW_DIR}"
 		rm -Rf "${SDKS_DIR}"
 		rm -Rf "${TOOLS_DIR}"
 		rm -Rf "${TMP_DIR}"
 		rm -Rf "${TOOLCHAIN}/src"
 		rm -Rf "${build}"
 		;;
+	
 	build)
 		message_action "Building the toolchain"
 		toolchain_build
