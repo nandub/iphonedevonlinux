@@ -26,10 +26,6 @@
 # What version of the toolchain are we building?
 TOOLCHAIN_VERSION="2.2"
 
-# The target platform, which is either 2G or 3G. I have yet to determine
-# if this is important
-PHONE_VERSION="3G"
-
 # Build everything relative to IPHONEDEV_DIR
 # Default is /home/loginname/iphonedev
 IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain/"
@@ -37,24 +33,19 @@ IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain/"
 # How to use this script
 # ======================
 #
-# Disclaimer: Use this script on your own risk. I'm not responsible
-# for any damage. Please don't use it with your root account. For
-# some steps you are asked for your password because we need
-# root privileges to loop-mount some .dmg/.img files.
-#
 # 1. set your prefered IPHONEDEV_DIR. All files and the
 #    complete toolchain will reside there.
 #
 # 2. ./toolchain.sh headers
-# 3. ./toolchain.sh system
-# 4. ./toolchain.sh darwin_sources APPLE_ID=YourAppleID APPLE_PASSWORD=YourPassword
+# 3. ./toolchain.sh firmware
+# 4. ./toolchain.sh darwin_sources [YourAppleID] [YourPassword]
 # 5. ./toolchain.sh build
 #
 # In general the resulting toolchain has following file layout
 # (for better reading I skip $IPHONEDEV_DIR):
 #
 # ./files
-# ./files/iphone_sdk_final.dmg (you have to copy it yourself)
+# ./files/iphone_sdk_final.dmg
 # ./files/fw
 # ./files/fw/iPhone1,1_2.0_5A347_Restore.ipsw (and/or other firmware.ipsw)
 # ./files/fw/2.0_5A347/system (the extracted rootfs of your favorite fw)
@@ -75,16 +66,15 @@ IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain/"
 # The first time this script is started the tools in ./tools are
 # downloaded and compiled.
 #
-# source ./toolchain.sh
-#   Set the environment to your toolchain. The ready compiled
-#   binaries (arm-apple-darwin9-...) are in your path.
+# source ./toolchain.sh all
+#   Perform all stages.
 #
 # ./toolchain.sh headers
 #   Extract SDKs from the iphone_sdk.
 #   Results in ready extracted ./SDKs/iPhoneOS2.{version}.sdk 
 #   and MacOSX10.5.sdk
 #
-# ./toolchain.sh system
+# ./toolchain.sh firmware
 #   Eventually downloads the firmware you defined in $FIRMWARE above
 #   if not copied to ./files/fw/...
 #   Now searches for decryptions-keys and tries to extract the
@@ -101,7 +91,7 @@ IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain/"
 #
 #   or use: 
 #
-# ./toolchain.sh darwin_sources APPLE_ID=xyz APPLE_PASSWORD=xyz
+# ./toolchain.sh darwin_sources [apple id] [apple password]
 #   Download the darwin sources from http://www.opensource.apple.com.
 #   You previously need to register at developer.apple.com.
 #
@@ -129,11 +119,8 @@ IPHONE_PKG="${MNT_DIR}/Packages/iPhoneSDKHeadersAndLibs.pkg"
 # Tools
 XPWN_GIT="git://github.com/planetbeing/xpwn.git"
 MIG_URL="ftp://ftp.gnu.org/gnu/mig/mig-1.3.tar.gz"
-#MIG_URL=""
-VFDECRYPT_TGZ="vfdecrypt-linux.tar.gz"
-VFDECRYPT_URL="http://iphone-elite.googlecode.com/files/${VFDECRYPT_TGZ}"
+VFDECRYPT_URL="http://iphone-elite.googlecode.com/files/vfdecrypt-linux.tar.gz"
 IPHONEWIKI_KEY_URL="http://www.theiphonewiki.com/wiki/index.php?title=VFDecrypt_Keys"
-FIRMWARE_FILE_LIST="http://www.iclarified.com/entry/index.php?enid=750"
 
 # Download information for Apple's open source components
 AID_LOGIN="https://daw.apple.com/cgi-bin/WebObjects/DSAuthWeb.woa/wa/login?appIdKey=D236F0C410E985A7BB866A960326865E7F924EB042FA9A161F6A628F0291F620&path=/darwinsource/tarballs/apsl/cctools-667.8.0.tar.gz"
@@ -143,9 +130,6 @@ NEEDED_COMMANDS="git-clone git-pull gcc cmake make sudo mount xar cpio tar wget 
 NEEDED_PACKAGES="libssl-dev libbz2-dev gawk gobjc bison flex"
 
 HERE=`pwd`
-
-# Just some internal tracking
-# declare -i ERROR_COUNT
 
 # Beautified echo commands
 cecho() {
@@ -365,9 +349,7 @@ convert_dmg_to_img() {
 }
 
 cleanup_tmp() {
-    pushd $TMP_DIR
-    rm -fR *
-    popd
+    pushd $TMP_DIR && rm -fR * && popd
 }
 
 extract_headers() {
@@ -443,7 +425,7 @@ extract_firmware() {
     	if [ "$REPLY" != "y" ] && [ "$REPLY" != "yes" ]; then 
 	    	read -p "Do you want me to download it (Y/n)?"
 	    	if [ "$REPLY" != "n" ] && [ "$REPLY" != "no" ]; then
-			$APPLE_DL_URL = $(cat firmware.list | awk '$1 ~ /'"${TOOLCHAIN_VERSION}"'/ && $2 ~ /iPhone (3G)/ { print $3; }')			
+			$APPLE_DL_URL = $(cat firmware.list | awk '$1 ~ /'"^${TOOLCHAIN_VERSION}$"'/ && $2 ~ /^iPhone\(3G\)$/ { print $3; }')
 			if [ ! $APPLE_DL_URL ] ; then
 			    error "Can't find a download url for the toolchain version and platform specified."
 			    error "You may have to download it manually.".
@@ -583,7 +565,7 @@ toolchain_download_darwin_sources() {
 		error "Error!"
 		error "Oh dear, I can't seem to log you in! Apple's login server told me:"
 		error "\"${LOGIN_ERROR}\""
-		error "Installation of iPhone Toolchain 2.2 cannot proceed."
+		error "Installation of toolchain cannot proceed."
 		exit
 	fi
 
