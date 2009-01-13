@@ -46,6 +46,9 @@ IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain"
 #    OR simply run:
 #	./toolchain.sh all
 #
+# Actions
+# ======================
+#
 # ./toolchain.sh all
 #   Perform all stages in the order defined below. See each individual
 #   stage for details.
@@ -157,6 +160,8 @@ check_commands() {
     fi
 }
 
+# Ensure the user has certain required packages present on their machine
+# Currently this is Debian-specific; it would be better to generalise it. But how?
 check_packages() {
 	local missing
 	for p in $NEEDED_PACKAGES; do
@@ -236,8 +241,7 @@ build_xpwn_dmg() {
     fi
 }
 
-# Retrieve and build vfdecrypt, which is used for decrypting the ipsw firmware images
-# which we will download automatically.
+# Retrieve and build vfdecrypt, which is used for decrypting ipsw firmware images
 build_vfdecrypt() {
     if [ ! -x $VFDECRYPT ] ; then
     	message_status "Downloading and building vfdecrypt..."
@@ -277,7 +281,7 @@ convert_dmg_to_img() {
     [ ! -x $DMG ] && build_xpwn_dmg
 
     # Look for the DMG and ask the user if is isn't findable. It's probably possible
-    # to automate this, however I don't feel it's appropriate at this time considering
+    # to automate the download, however I don't feel it's appropriate at this time considering
     # that the download size would force the user to leave the script running unattended
     # for too long.
     if [ ! -r $IPHONE_SDK_IMG ] && [ ! -r $IPHONE_SDK_DMG ] ; then
@@ -436,6 +440,16 @@ extract_firmware() {
     echo "Restore RamDisk: ${FW_RESTORE_RAMDISK}"
     echo "Restore Image: ${FW_RESTORE_SYSTEMDISK}"
     
+    if [[ $FW_PRODUCT_VERSION != $TOOLCHAIN_VERSION ]]; then
+    	error "The firmware image is for ${FW_DEVICE_CLASS} version ${FW_PRODUCT_VERSION}, but we are"
+    	error "building toolchain version ${TOOLCHAIN_VERSION}. These may be incompatible."
+    	read -p "Proceed (y/N)? "
+    	if [ "$REPLY" != "y" ] && [ "$REPLY" != "yes" ]; then
+    		error "Firmware extraction will not proceed."
+    		exit 1
+    	fi
+    fi
+    
     message_status "Unzipping `basename $FW_RESTORE_SYSTEMDISK`..."
     unzip -d "${TMP_DIR}" -o "${FW_FILE}" "${FW_RESTORE_SYSTEMDISK}"
 
@@ -468,8 +482,8 @@ extract_firmware() {
     FW_SYSTEM_DIR="${FW_VERSION_DIR}"
     FW_SYSTEM_DMG="${TMP_DIR}/root_system.dmg"
 
-    [ ! -d $FW_VERSION_DIR ] && mkdir "${FW_VERSION_DIR}"
-    [ ! -d $FW_SYSTEM_DIR  ] && mkdir "${FW_SYSTEM_DIR}"
+    mkdir -p "${FW_VERSION_DIR}"
+    mkdir -p "${FW_SYSTEM_DIR}"
 
     if [ ! -r ${FW_SYSTEM_DMG} ] ; then
     	message_status "Extracting decrypted dmg..."
@@ -547,6 +561,16 @@ toolchain_download_darwin_sources() {
 	echo "Login successful."
 
 	# Need to accept the license agreement
+	echo "In order to download these Apple OSS components, you must read"
+	echo "and accept the APSL agreement, found here:"
+	echo "http://www.opensource.apple.com/apsl/"
+	read -p "Have you read and accepted the APSL agreement (Y/n)? "
+	
+	if [ "$REPLY" == "n" ] || [ "$REPLY" == "no" ]; then
+		error "You must accept the agreement in order to proceed."
+		exit 1
+	fi
+	
 	echo "Accepting APSL agreement on your behalf..."
 	wget --quiet --load-cookies=cookies.tmp \
 		--keep-session-cookies --post-data="APSLrev=2.0&querystr=&acceptBtn=Yes%2C+I+Accept" \
@@ -602,7 +626,7 @@ toolchain_build() {
     # tar to ignore this, and they are constantly in the way so I'll use this hack.
     chmod -R 755 *
 
-    mkdir -p "$(dirname "$TOOLCHAIN/sys")"
+    mkdir -p "$(dirname $TOOLCHAIN/sys)"
     cd "$TOOLCHAIN/sys"
 
     if [ ! -d "${FW_DIR}/current" ] ; then
@@ -610,7 +634,7 @@ toolchain_build() {
         exit 1
     fi
 
-    if [ -d $sysroot ] && [[ `ls -A $sysroot | wc -w` > 0 ]]; then
+    if [ -d $TOOLCHAIN/sys ] && [[ `ls -A $TOOLCHAIN/sys | wc -w` > 0 ]]; then
 	    echo "It looks like the iPhone filesystem has already been copied."
 	    read -p "Copy again (y/N)? "
 	    if [ "${REPLY}" == "y" ]; then
@@ -782,13 +806,13 @@ toolchain_build() {
     cp -af crt1.o crt1.10.5.o
     cp -af dylib1.o dylib1.10.5.o
 
-    if [ ! -d $gcc ]; then
+    if [ ! -d $GCC_DIR ]; then
     	message_status "Checking out saurik's llvm-gcc-4.2..."
     	rm -rf "${GCC_DIR}"
     	git clone git://git.saurik.com/llvm-gcc-4.2 "${GCC_DIR}"
     else
     	message_status "Updating llvm-gcc-4.2..."
-    	pushd $gcc && git pull git://git.saurik.com/llvm-gcc-4.2 master && popd
+    	pushd $GCC_DIR && git pull git://git.saurik.com/llvm-gcc-4.2 master && popd
     fi
     
     message_status "Checking out odcctools..."
@@ -821,8 +845,8 @@ toolchain_build() {
         --prefix="$TOOLCHAIN/pre" \
         --with-sysroot="$TOOLCHAIN/sys" \
         --enable-languages=c,c++,objc,obj-c++ \
-        --with-as="$TOOLCHAIN/pre"/bin/"${TARGET}"-as \
-        --with-ld="$TOOLCHAIN/pre"/bin/"${TARGET}"-ld \
+        --with-as="$TOOLCHAIN"/pre/bin/"${TARGET}"-as \
+        --with-ld="$TOOLCHAIN"/pre/bin/"${TARGET}"-ld \
         --enable-wchar_t=no \
         --with-gxx-include-dir=/usr/include/c++/4.0.0
     make clean
@@ -830,8 +854,8 @@ toolchain_build() {
     	error "Build & install failed. Check make.log and install.log"
     fi
 
-    mkdir -p "$TOOLCHAIN/sys"/"$(dirname "$TOOLCHAIN/pre")"
-    ln -s "$TOOLCHAIN/pre" "$TOOLCHAIN/sys"/"$(dirname "$TOOLCHAIN/pre")"
+    mkdir -p "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pre)"
+    ln -s "$TOOLCHAIN/pre" "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pre)"
 
 }
 
