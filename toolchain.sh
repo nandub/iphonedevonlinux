@@ -487,7 +487,9 @@ toolchain_extract_firmware() {
     sudo cp -Ra * "${FW_VERSION_DIR}"
     sudo chown -R `id --user`:`id --group` $FW_VERSION_DIR
     message_status "Unmounting..."
-    sudo umount "${MNT_DIR}"
+
+    cd "${HERE}"
+    sudo umount -fl "${MNT_DIR}"
     
     if [ -s "${FW_DIR}/current" ] ; then
         rm "${FW_DIR}/current";
@@ -791,12 +793,15 @@ toolchain_build() {
 	# this step may have a bad hunk in CoreFoundation and thread_status while patching
 	# these errors are to be ignored, as these are changes for issues Apple has now fixed
 	# include.diff is a modified version the telesphoreo patchs to support iPhone 2.2 SDK.
+        pushd "usr/include"
 	patch -p3 -N < "${HERE}/include.diff"
 	wget -qO arm/locks.h http://svn.telesphoreo.org/trunk/tool/patches/locks.h
 
 	mkdir -p GraphicsServices
 	cd GraphicsServices
 	wget -q http://svn.telesphoreo.org/trunk/tool/patches/GraphicsServices.h
+        
+        popd
 
 	# Changed some of the below commands from sudo; don't know why they were like that
 	message_status "Checking out iphone-dev repo..."
