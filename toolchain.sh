@@ -870,8 +870,7 @@ toolchain_build() {
 	fi
 
 	mkdir -p "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pre)"
-	ln -s "$TOOLCHAIN/pre" "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pr/N)? "
-+	e)"
+	ln -s "$TOOLCHAIN/pre" "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pre)"
 }
 
 class_dump() {
@@ -941,8 +940,7 @@ case $1 in
 		export TOOLCHAIN_CHECKED=1
 		( ./toolchain.sh headers && \
 		  ./toolchain.sh darwin_sources && \
-		  ./toolchain.sh firmware && \/N)? "
-+	
+		  ./toolchain.sh firmware && 
 		  ./toolchain.sh build ) || exit 1
 		
 		read -p "Do you want to clean up the source files used to build the toolchain? (y/N)"
