@@ -109,8 +109,8 @@ IPHONEWIKI_KEY_URL="http://www.theiphonewiki.com/wiki/index.php?title=VFDecrypt_
 AID_LOGIN="https://daw.apple.com/cgi-bin/WebObjects/DSAuthWeb.woa/wa/login?appIdKey=D236F0C410E985A7BB866A960326865E7F924EB042FA9A161F6A628F0291F620&path=/darwinsource/tarballs/apsl/cctools-667.8.0.tar.gz"
 DARWIN_SOURCES_DIR="$FILES_DIR/darwin_sources"
 
-NEEDED_COMMANDS="git-clone git-pull gcc cmake make sudo mount xar cpio tar wget unzip gawk"
-NEEDED_PACKAGES="libssl-dev libbz2-dev gobjc bison flex"
+NEEDED_COMMANDS="git-clone git-pull gcc cmake make sudo mount xar cpio tar wget unzip gawk bison flex"
+NEEDED_PACKAGES="libssl-dev libbz2-dev"
 
 HERE=`pwd`
 
@@ -931,6 +931,14 @@ check_environment() {
 	
 	check_commands
 	check_packages
+	
+	# Performs a check for objective-c extensions to gcc
+	if [ ! -z "`gcc --help=objc` | grep \"warning: unrecognized argument to --help\"" ]; then
+		error "GCC does not appear to support Objective-C."
+		error "You may need to install support."
+		exit
+	fi
+	
 	message_status "Environment is ready"
 }
 
