@@ -92,7 +92,7 @@ TMP_DIR="${IPHONEDEV_DIR}/tmp"
 MNT_DIR="${FILES_DIR}/mnt"
 FW_DIR="${FILES_DIR}/firmware"
 
-IPHONE_SDK="iphone_sdk_for_iphone_os_${TOOLCHAIN_VERSION}_*_final.dmg"
+IPHONE_SDK="iphone_sdk_for_iphone_os_*_final.dmg"
 IPHONE_SDK_DMG="${FILES_DIR}/${IPHONE_SDK}"
 IPHONE_SDK_IMG="${FILES_DIR}/iphone_sdk.img"
 
@@ -215,6 +215,8 @@ build_tools() {
     mkdir -p $TMP_DIR
     ([ -x $DMG ] && [ -x $VFDECRYPT ]) && return
 
+    message_status "Retrieving and building dmg2img 1.3..."
+
     cd $TMP_DIR
     if ! wget -O - $DMG2IMG | tar -zx; then
     	error "Failed to get and extract dmg2img-1.3. Check errors."
@@ -231,6 +233,8 @@ build_tools() {
     mv vfdecrypt dmg2img $TOOLS_DIR
     popd
     rm -Rf dmg2img-1.3
+    
+    message_status "dmg2img is ready!"
 }
 
 toolchain_extract_headers() {
@@ -270,7 +274,7 @@ toolchain_extract_headers() {
 
     if [ ! -r $IPHONE_SDK_IMG ] ; then
     	message_status "Converting `basename $IPHONE_SDK_DMG` to img format..."
-        $DMG -s $IPHONE_SDK_DMG $IPHONE_SDK_IMG
+        $DMG -v $IPHONE_SDK_DMG $IPHONE_SDK_IMG
         if [ ! -s $IPHONE_SDK_IMG ]; then
         	error "Failed to extract `basename $IPHONE_SDK_DMG`!"
         	rm $IPHONE_SDK_IMG
@@ -470,7 +474,7 @@ toolchain_extract_firmware() {
 
     if [ ! -r ${FW_SYSTEM_DMG} ] ; then
     	message_status "Extracting decrypted dmg..."
-        $DMG -s "${FW_RESTORE_SYSTEMDISK}.decrypted" ${FW_SYSTEM_DMG}
+        $DMG -v "${FW_RESTORE_SYSTEMDISK}.decrypted" ${FW_SYSTEM_DMG}
     fi
 
     message_status "Trying to mount `basename ${FW_SYSTEM_DMG}`..."
@@ -593,7 +597,11 @@ toolchain_build() {
 
 	cd "${DARWIN_SOURCES_DIR}"
 	message_status "Finding and extracting archives..."
-	find ./* -name '*.tar.gz' -exec tar --overwrite -xzof {} \;
+	ARCHIVES=$(find ./* -name '*.tar.gz')
+	for a in $ARCHIVES; do
+		basename $a .tar.gz
+		tar --overwrite -xzof $a
+	done
 
 	# Permissions are being extracted along with the gzipped files. I can't seem to get
 	# tar to ignore this, and they are constantly in the way so I'll use this hack.
@@ -632,8 +640,8 @@ toolchain_build() {
 	ln -s . System
 
 	cp -af "${IPHONE_SDK_INC}"/* .
-	cp -af "${apple}"/xnu-1228.7.58/osfmk/* .
-	cp -af "${apple}"/xnu-1228.7.58/bsd/* . 
+	cp -af "${DARWIN_SOURCES_DIR}"/xnu-1228.7.58/osfmk/* .
+	cp -af "${DARWIN_SOURCES_DIR}"/xnu-1228.7.58/bsd/* . 
 
 	echo "mach"
 	cp -af "${DARWIN_SOURCES_DIR}"/cctools-*/include/mach .
@@ -862,7 +870,8 @@ toolchain_build() {
 	fi
 
 	mkdir -p "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pre)"
-	ln -s "$TOOLCHAIN/pre" "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pre)"
+	ln -s "$TOOLCHAIN/pre" "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pr/N)? "
++	e)"
 }
 
 class_dump() {
@@ -932,12 +941,14 @@ case $1 in
 		export TOOLCHAIN_CHECKED=1
 		( ./toolchain.sh headers && \
 		  ./toolchain.sh darwin_sources && \
-		  ./toolchain.sh firmware && \
+		  ./toolchain.sh firmware && \/N)? "
++	
 		  ./toolchain.sh build ) || exit 1
 		
 		read -p "Do you want to clean up the source files used to build the toolchain? (y/N)"
 		([ "$REPLY" == "y" ] || [ "$REPLY" == "yes" ]) && ./toolchain.sh clean
 		message_action "All stages completed. The toolchain is ready."
+		unset TOOLCHAIN_CHECKED
 		;;
 		
 	headers)
@@ -1004,11 +1015,15 @@ case $1 in
 		rm -Rf "${TOOLCHAIN}/src"
 		rm -Rf "$TOOLCHAIN/bld"
 		
-		read -p "Do you want me to remove the SDK dmg (y/N)? "
-		( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ] ) && rm "${IPHONE_SDK_DMG}"
-		
-		read -p "Do you want me to remove the firmware image(s) (y/N)? "
-		( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ] ) && rm -Rf "${FW_DIR}"
+		if [ -r $IPHONE_SDK_DMG ]; then
+			read -p "Do you want me to remove the SDK dmg (y/N)? "
+			( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ] ) && rm "${IPHONE_SDK_DMG}"
+		fi
+
+		if [ -r $FW_DIR/*.ipsw ]; then		
+			read -p "Do you want me to remove the firmware image(s) (y/N)? "
+			( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ] ) && rm -Rf "${FW_DIR}"
+		fi
 		;;
 
 	*)
