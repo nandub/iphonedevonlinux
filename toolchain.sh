@@ -933,7 +933,7 @@ check_environment() {
 	check_packages
 	
 	# Performs a check for objective-c extensions to gcc
-	if [ ! -z "`gcc --help=objc` | grep \"warning: unrecognized argument to --help\"" ]; then
+	if [ ! -z "`LANG=C gcc --help=objc 2>&1 | grep \"warning: unrecognized argument to --help\"`" ]; then
 		error "GCC does not appear to support Objective-C."
 		error "You may need to install support."
 		exit
