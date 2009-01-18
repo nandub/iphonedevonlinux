@@ -463,7 +463,7 @@ toolchain_extract_firmware() {
     echo "Starting vfdecrypt with decryption key: $DECRYPTION_KEY_SYSTEM"
     cd "${TMP_DIR}"
     ${TOOLS_DIR}/vfdecrypt -i"${FW_RESTORE_SYSTEMDISK}" \
-    			   -o"${FW_RESTORE_SYSTEMDISK}.decrypted"
+    			   -o"${FW_RESTORE_SYSTEMDISK}.decrypted" \
     			   -k "$DECRYPTION_KEY_SYSTEM" &> /dev/null
 
     if [ ! -s "${FW_RESTORE_SYSTEMDISK}.decrypted" ]; then
