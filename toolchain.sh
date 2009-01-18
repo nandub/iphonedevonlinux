@@ -27,9 +27,8 @@
 # What version of the toolchain are we building?
 TOOLCHAIN_VERSION="2.2"
 
-# Build everything relative to IPHONEDEV_DIR
-# Default is /home/loginname/iphonedev
-IPHONEDEV_DIR="${HOME}/Projects/iphone/toolchain"
+# Everything is built relative to IPHONEDEV_DIR
+IPHONEDEV_DIR="`pwd`"
 
 # Usage
 # ======================
@@ -96,16 +95,9 @@ IPHONE_SDK="iphone_sdk_for_iphone_os_*_final.dmg"
 IPHONE_SDK_DMG="${FILES_DIR}/${IPHONE_SDK}"
 IPHONE_SDK_IMG="${FILES_DIR}/iphone_sdk.img"
 
-DMG="${TOOLS_DIR}/dmg2img"
-VFDECRYPT="${TOOLS_DIR}/vfdecrypt"
-MIG="${MIG_DIR}/mig"
-
-# Tools
+# URLS
 DMG2IMG="http://vu1tur.eu.org/tools/download.pl?dmg2img-1.3.tar.gz"
-MIG_URL="ftp://ftp.gnu.org/gnu/mig/mig-1.3.tar.gz"
 IPHONEWIKI_KEY_URL="http://www.theiphonewiki.com/wiki/index.php?title=VFDecrypt_Keys"
-
-# Download information for Apple's open source components
 AID_LOGIN="https://daw.apple.com/cgi-bin/WebObjects/DSAuthWeb.woa/wa/login?appIdKey=D236F0C410E985A7BB866A960326865E7F924EB042FA9A161F6A628F0291F620&path=/darwinsource/tarballs/apsl/cctools-667.8.0.tar.gz"
 DARWIN_SOURCES_DIR="$FILES_DIR/darwin_sources"
 
@@ -141,6 +133,24 @@ cecho() {
 		shift
 	done
 	echo "$*$(tput sgr0)"
+}
+
+# Shorthand method of asking a yes or no question with a default answer
+confirm() {
+	local YES="Y"
+	local NO="n"
+	if [ "$1" == "-N" ]; then
+		NO="N"
+		YES="y"
+		shift
+	fi
+	read -p "$1 [${YES}/${NO}] "
+	if [ "$REPLY" == "no" ] || [ "$REPLY" == "n" ] || ([ "$NO" == "N" ] && [ -z "$REPLY" ] ); then
+		return 1
+	fi
+	if [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ] || ([ "$YES" == "Y" ] && [ -z "$REPLY" ] ); then
+		return 0
+	fi
 }
 
 error() {
@@ -213,7 +223,7 @@ plist_key() {
 build_tools() {
     mkdir -p $TOOLS_DIR
     mkdir -p $TMP_DIR
-    ([ -x $DMG ] && [ -x $VFDECRYPT ]) && return
+    ([ -x ${TOOLS_DIR}/dmg2img ] && [ -x ${TOOLS_DIR}/vfdecrypt ]) && return
 
     message_status "Retrieving and building dmg2img 1.3..."
 
@@ -238,7 +248,7 @@ build_tools() {
 }
 
 toolchain_extract_headers() {
-    [ ! -x $DMG ] && build_tools
+    [ ! -x ${TOOLS_DIR}/dmg2img ] && build_tools
     mkdir -p ${MNT_DIR}
     mkdir -p ${SDKS_DIR}
     mkdir -p ${TMP_DIR}
@@ -256,8 +266,7 @@ toolchain_extract_headers() {
     if [ ! -r $IPHONE_SDK_IMG ] && [ ! -r $IPHONE_SDK_DMG ] ; then
     	echo "I'm having trouble finding the iPhone SDK. I looked here:"
     	echo $IPHONE_SDK_DMG
-    	read -p "Do you have the SDK (y/N)? "
-    	if [ "$REPLY" != "y" ]; then
+    	if ! confirm -N "Do you have the SDK?"; then
     		error "You will need to download the SDK before you can build the toolchain. The"
     		error "required file can be obtained from: http://developer.apple.com/iphone/"
     		exit 1
@@ -274,7 +283,7 @@ toolchain_extract_headers() {
 
     if [ ! -r $IPHONE_SDK_IMG ] ; then
     	message_status "Converting `basename $IPHONE_SDK_DMG` to img format..."
-        $DMG -v $IPHONE_SDK_DMG $IPHONE_SDK_IMG
+        ${TOOLS_DIR}/dmg2img -v $IPHONE_SDK_DMG $IPHONE_SDK_IMG
         if [ ! -s $IPHONE_SDK_IMG ]; then
         	error "Failed to extract `basename $IPHONE_SDK_DMG`!"
         	rm $IPHONE_SDK_IMG
@@ -355,7 +364,7 @@ toolchain_extract_headers() {
 }
 
 toolchain_extract_firmware() {
-   ([ ! -x $VFDECRYPT ] || [ ! -x $DMG ]) && build_tools
+   ([ ! -x ${TOOLS_DIR}/vfdecrypt ] || [ ! -x ${TOOLS_DIR}/dmg2img ]) && build_tools
    mkdir -p $FW_DIR
    mkdir -p $MNT_DIR
    mkdir -p $TMP_DIR
@@ -375,12 +384,8 @@ toolchain_extract_firmware() {
     # apple download urls above.
     if [ ! -r "$FW_FILE" ] ; then
     	echo "I can't find the firmware image for iPhone/iPod Touch $TOOLCHAIN_VERSION."
-    	read -p "Do you have it (y/N)?"
-    	if [ "$REPLY" != "y" ] && [ "$REPLY" != "yes" ]; then #  wiki
-
-
-	    	read -p "Do you want me to download it (Y/n)?"
-	    	if [ "$REPLY" != "n" ] && [ "$REPLY" != "no" ]; then
+    	if ! confirm -N "Do you have it?"; then
+	    	if confirm "Do you want me to download it?"; then
 			APPLE_DL_URL=$(cat ${HERE}/firmware.list | awk '$1 ~ /'"^${TOOLCHAIN_VERSION}$"'/ && $2 ~ /^iPhone\(3G\)$/ { print $3; }')
 			FW_FILE=`basename "${APPLE_DL_URL}"`
 			if [ ! $APPLE_DL_URL ] ; then
@@ -432,8 +437,7 @@ toolchain_extract_firmware() {
     if [[ $FW_PRODUCT_VERSION != $TOOLCHAIN_VERSION ]]; then
     	error "The firmware image is for ${FW_DEVICE_CLASS} version ${FW_PRODUCT_VERSION}, but we are"
     	error "building toolchain version ${TOOLCHAIN_VERSION}. These may be incompatible."
-    	read -p "Proceed (y/N)? "
-    	if [ "$REPLY" != "y" ] && [ "$REPLY" != "yes" ]; then
+    	if ! confirm "Proceed?"; then
     		error "Firmware extraction will not proceed."
     		exit 1
     	fi
@@ -446,8 +450,8 @@ toolchain_extract_firmware() {
     if [ -z "$DECRYPTION_KEY_SYSTEM" ] ; then
         echo "We need the decryption key for `basename $FW_RESTORE_SYSTEMDISK`."
         echo "I'm going to try to fetch it from $IPHONEWIKI_KEY_URL...."
-        DECRYPTION_KEY_SYSTEM=$( wget --quiet -O - $IPHONEWIKI_KEY_URL | awk '
-            /name=\"'"${FW_PRODUCT_VERSION}"'.*'"${FW_BUILD_VERSION}"'/ { found = 1; IGNORECASE = 1; }
+        DECRYPTION_KEY_SYSTEM=$( wget --quiet -O - $IPHONEWIKI_KEY_URL | awk 'BEGIN { IGNORECASE = 1; }
+            /name=\"'"${FW_PRODUCT_VERSION}"'.*'"${FW_BUILD_VERSION}"'/ { found = 1; }
             /<p>.*$/ && found { sub(/.*<p>/, "", $0); print toupper($0); exit; }' )
         if [ ! "$DECRYPTION_KEY_SYSTEM" ] ; then
             error "Sorry, no decryption key for system partition found!"
@@ -458,7 +462,9 @@ toolchain_extract_firmware() {
 
     echo "Starting vfdecrypt with decryption key: $DECRYPTION_KEY_SYSTEM"
     cd "${TMP_DIR}"
-    $VFDECRYPT -i"${FW_RESTORE_SYSTEMDISK}" -o"${FW_RESTORE_SYSTEMDISK}.decrypted" -k "$DECRYPTION_KEY_SYSTEM" &> /dev/null
+    ${TOOLS_DIR}/vfdecrypt -i"${FW_RESTORE_SYSTEMDISK}" \
+    			   -o"${FW_RESTORE_SYSTEMDISK}.decrypted"
+    			   -k "$DECRYPTION_KEY_SYSTEM" &> /dev/null
 
     if [ ! -s "${FW_RESTORE_SYSTEMDISK}.decrypted" ]; then
     	error "Decryption of `basename $FW_RESTORE_SYSTEMDISK` failed!"
@@ -474,7 +480,7 @@ toolchain_extract_firmware() {
 
     if [ ! -r ${FW_SYSTEM_DMG} ] ; then
     	message_status "Extracting decrypted dmg..."
-        $DMG -v "${FW_RESTORE_SYSTEMDISK}.decrypted" ${FW_SYSTEM_DMG}
+        ${TOOLS_DIR}/dmg2img -v "${FW_RESTORE_SYSTEMDISK}.decrypted" ${FW_SYSTEM_DMG}
     fi
 
     message_status "Trying to mount `basename ${FW_SYSTEM_DMG}`..."
@@ -517,7 +523,7 @@ toolchain_download_darwin_sources() {
 			print substr($0, RSTART, RLENGTH);
 	}')
 
-	if [ "$LOGIN_URL" == "" ]; then
+	if [ -z "$LOGIN_URL" ]; then
 		error "Oh dear, I can't seem to log you in! There was a problem"
 		error "retrieving the login form session ID. Apple probably"
 		error "changed something on their site."
@@ -551,10 +557,8 @@ toolchain_download_darwin_sources() {
 	# Need to accept the license agreement
 	echo "In order to download these Apple OSS components, you must read"
 	echo "and accept the APSL agreement, found here:"
-	echo "http://www.opensource.apple.com/apsl/"
-	read -p "Have you read and accepted the APSL agreement (Y/n)? "
-	
-	if [ "$REPLY" == "n" ] || [ "$REPLY" == "no" ]; then
+	echo "http://www.opensource.apple.com/apsl/"	
+	if ! confirm "Have you read and accepted the APSL agreement?"; then
 		error "You must accept the agreement in order to proceed."
 		exit 1
 	fi
@@ -586,12 +590,9 @@ toolchain_build() {
 	local CCTOOLS_DIR="$TOOLCHAIN/src/cctools"
 	local GCC_DIR="$TOOLCHAIN/src/gcc"
 	local CSU_DIR="$TOOLCHAIN/src/csu"
-	export PATH="$TOOLCHAIN/pre/bin":"${PATH}" 
-	if [ "`vercmp $TOOLCHAIN_VERSION 2.0`" == "newer" ]; then
-		local TARGET="arm-apple-darwin9"
-	else
-		local TARGET="arm-apple-darwin8"
-	fi
+	export PATH="$TOOLCHAIN/pre/bin":"${PATH}"
+	local TARGET="arm-apple-darwin9"
+	[ ! "`vercmp $TOOLCHAIN_VERSION 2.0`" == "newer" ] && local TARGET="arm-apple-darwin8"
 
 	mkdir -p "${TOOLCHAIN}"
 
@@ -922,6 +923,7 @@ check_environment() {
 	[ $TOOLCHAIN_CHECKED ] && return
 	message_action "Preparing the environment"
 	cecho bold "Toolchain version: ${TOOLCHAIN_VERSION}"
+	cecho bold "Building in: ${IPHONEDEV_DIR}"
 	
 	if [[ "`vercmp $TOOLCHAIN_VERSION 2.0`" == "older" ]]; then
 		error "The toolchain builder is only capable of building toolchains targeting"
@@ -951,8 +953,7 @@ case $1 in
 		  ./toolchain.sh firmware && 
 		  ./toolchain.sh build ) || exit 1
 		
-		read -p "Do you want to clean up the source files used to build the toolchain? (y/N)"
-		([ "$REPLY" == "y" ] || [ "$REPLY" == "yes" ]) && ./toolchain.sh clean
+		confirm "Do you want to clean up the source files used to build the toolchain?" && ./toolchain.sh clean
 		message_action "All stages completed. The toolchain is ready."
 		unset TOOLCHAIN_CHECKED
 		;;
@@ -1020,16 +1021,8 @@ case $1 in
 		rm -Rf "${TMP_DIR}"
 		rm -Rf "${TOOLCHAIN}/src"
 		rm -Rf "$TOOLCHAIN/bld"
-		
-		if [ -r $IPHONE_SDK_DMG ]; then
-			read -p "Do you want me to remove the SDK dmg (y/N)? "
-			( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ] ) && rm "${IPHONE_SDK_DMG}"
-		fi
-
-		if [ -r $FW_DIR/*.ipsw ]; then		
-			read -p "Do you want me to remove the firmware image(s) (y/N)? "
-			( [ "$REPLY" == "yes" ] || [ "$REPLY" == "y" ] ) && rm -Rf "${FW_DIR}"
-		fi
+		[ -r $IPHONE_SDK_DMG ] && confirm -N "Do you want me to remove the SDK dmg?" && rm "${IPHONE_SDK_DMG}"
+		[ -r $FW_DIR/*.ipsw ] && confirm -N "Do you want me to remove the firmware image(s)?" && rm -Rf "${FW_DIR}"
 		;;
 
 	*)
