@@ -109,8 +109,8 @@ HERE=`pwd`
 # Compare two version strings and return a string indicating whether the first version number
 # is newer, older or equal to the second. This is quite dumb, but it works.
 vercmp() {
-	V1=`echo "$1" | sed -e 's/[^0-9]//g' | awk '{ printf "%0.10f", "0."$0 }'`
-	V2=`echo "$2" | sed -e 's/[^0-9]//g' | awk '{ printf "%0.10f", "0."$0 }'`
+	V1=`echo "$1" | sed -e 's/[^0-9]//g' | LANG=C awk '{ printf "%0.10f", "0."$0 }'`
+	V2=`echo "$2" | sed -e 's/[^0-9]//g' | LANG=C awk '{ printf "%0.10f", "0."$0 }'`
 	[[ $V1 > $V2 ]] && echo "newer"
 	[[ $V1 == $V2 ]] && echo "equal"
 	[[ $V1 < $V2 ]] && echo "older"
@@ -924,7 +924,6 @@ check_environment() {
 	message_action "Preparing the environment"
 	cecho bold "Toolchain version: ${TOOLCHAIN_VERSION}"
 	cecho bold "Building in: ${IPHONEDEV_DIR}"
-	
 	if [[ "`vercmp $TOOLCHAIN_VERSION 2.0`" == "older" ]]; then
 		error "The toolchain builder is only capable of building toolchains targeting"
 		error "iPhone SDK >=2.0. Sorry."
