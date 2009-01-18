@@ -101,8 +101,7 @@ IPHONEWIKI_KEY_URL="http://www.theiphonewiki.com/wiki/index.php?title=VFDecrypt_
 AID_LOGIN="https://daw.apple.com/cgi-bin/WebObjects/DSAuthWeb.woa/wa/login?appIdKey=D236F0C410E985A7BB866A960326865E7F924EB042FA9A161F6A628F0291F620&path=/darwinsource/tarballs/apsl/cctools-667.8.0.tar.gz"
 DARWIN_SOURCES_DIR="$FILES_DIR/darwin_sources"
 
-NEEDED_COMMANDS="git-clone git-pull gcc cmake make sudo mount xar cpio tar wget unzip gawk bison flex"
-NEEDED_PACKAGES="libssl-dev libbz2-dev"
+NEEDED_COMMANDS="git gcc make sudo mount xar cpio zcat tar wget unzip gawk bison flex"
 
 HERE=`pwd`
 
@@ -144,7 +143,7 @@ confirm() {
 		YES="y"
 		shift
 	fi
-	read -p "$1 [${YES}/${NO}] "
+	read -p "$* [${YES}/${NO}] "
 	if [ "$REPLY" == "no" ] || [ "$REPLY" == "n" ] || ([ "$NO" == "N" ] && [ -z "$REPLY" ] ); then
 		return 1
 	fi
@@ -163,39 +162,6 @@ message_status() {
 
 message_action() {
 	cecho blue $*
-}
-
-check_commands() {
-    local command
-    local missing
-    for c in $NEEDED_COMMANDS ; do
-        command=$(which $c)
-        if [ -z $command ] ; then 
-            missing="$missing $c"
-        fi
-    done
-    if [ "$missing" != "" ] ; then
-        error "The following commands are missing:$missing"
-        error "You may need to install additional software for them using your package manager."
-        exit 1
-    fi
-}
-
-# Ensure the user has certain required packages present on their machine
-# Currently this is Debian-specific; it would be better to generalise it. But how?
-check_packages() {
-	local missing
-	for p in $NEEDED_PACKAGES; do
-		local package_state=$(dpkg --get-selections | awk "/^$p.*install$/ { print \"install\"; exit }")
-		if ! [ "$package_state" == "install" ]; then
-			missing="$missing $p"
-		fi
-	done
-	if [ "$missing" != "" ] ; then
-		error "The following required packages are missing:$missing"
-		error "You may need to install them using your package manager."
-		exit 1
-	fi
 }
 
 # Takes a plist string and does a very basic lookup of a particular key value,
@@ -236,8 +202,9 @@ build_tools() {
     pushd dmg2img-1.3
     
     if ! make; then
-    	error "Failed to make dmg2img-1.3. Check errors."
-    	exit
+    	error "Failed to make dmg2img-1.3."
+    	error "Make sure you have libbz2 and libssl available on your system."
+    	exit 1
     fi
     
     mv vfdecrypt dmg2img $TOOLS_DIR
@@ -249,9 +216,7 @@ build_tools() {
 
 toolchain_extract_headers() {
     [ ! -x ${TOOLS_DIR}/dmg2img ] && build_tools
-    mkdir -p ${MNT_DIR}
-    mkdir -p ${SDKS_DIR}
-    mkdir -p ${TMP_DIR}
+    mkdir -p ${MNT_DIR} ${SDKS_DIR} ${TMP_DIR}
     
     # Make sure we don't already have these
     if [ -d "${SDKS_DIR}/iPhoneOS${TOOLCHAIN_VERSION}.sdk" ] && [ -d "${SDKS_DIR}/MacOSX10.5.sdk" ]; then
@@ -266,7 +231,7 @@ toolchain_extract_headers() {
     if [ ! -r $IPHONE_SDK_IMG ] && [ ! -r $IPHONE_SDK_DMG ] ; then
     	echo "I'm having trouble finding the iPhone SDK. I looked here:"
     	echo $IPHONE_SDK_DMG
-    	if ! confirm -N "Do you have the SDK?"; then
+    	if ! confirm "Do you have the SDK?"; then
     		error "You will need to download the SDK before you can build the toolchain. The"
     		error "required file can be obtained from: http://developer.apple.com/iphone/"
     		exit 1
@@ -315,7 +280,7 @@ toolchain_extract_headers() {
     fi
     
     if [[ "`vercmp $SDK_VERSION $TOOLCHAIN_VERSION`" == "newer" ]]; then
-    	PACKAGE="iPhoneSDK`echo $TOOLCHAIN_VERSION | sed 's/\./_/' `.pkg"
+    	PACKAGE="iPhoneSDK`echo $TOOLCHAIN_VERSION | sed 's/\./_/g' `.pkg"
     else
     	PACKAGE="iPhoneSDKHeadersAndLibs.pkg"
     fi
@@ -365,9 +330,7 @@ toolchain_extract_headers() {
 
 toolchain_extract_firmware() {
    ([ ! -x ${TOOLS_DIR}/vfdecrypt ] || [ ! -x ${TOOLS_DIR}/dmg2img ]) && build_tools
-   mkdir -p $FW_DIR
-   mkdir -p $MNT_DIR
-   mkdir -p $TMP_DIR
+   mkdir -p $FW_DIR $MNT_DIR $TMP_DIR
 
     if [ -z "$FW_FILE" ]; then
     	FW_FILE=`ls ${FW_DIR}/*${TOOLCHAIN_VERSION}*.ipsw 2>/dev/null`
@@ -460,7 +423,8 @@ toolchain_extract_firmware() {
         echo "I found it!"
     fi
 
-    echo "Starting vfdecrypt with decryption key: $DECRYPTION_KEY_SYSTEM"
+    echo "Starting vfdecrypt with decryption key:"
+    echo "$DECRYPTION_KEY_SYSTEM"
     cd "${TMP_DIR}"
     ${TOOLS_DIR}/vfdecrypt -i"${FW_RESTORE_SYSTEMDISK}" \
     			   -o"${FW_RESTORE_SYSTEMDISK}.decrypted" \
@@ -619,8 +583,7 @@ toolchain_build() {
 
 	if [ -d $TOOLCHAIN/sys ] && [[ `ls -A $TOOLCHAIN/sys | wc -w` > 0 ]]; then
 		echo "It looks like the iPhone filesystem has already been copied."
-		read -p "Copy again (y/N)? "
-		if [ "${REPLY}" == "y" ]; then
+		if confirm -N "Copy again?"; then
 			message_status "Copying required iPhone filesystem components..."
 			# I have tried to avoid copying the permissions (not using -a) because they
 			# get in the way later down the track. This might be wrong but it seems okay.
@@ -664,12 +627,6 @@ toolchain_build() {
 
 	cp -a i386/disklabel.h arm
 	cp -a mach/i386/machine_types.defs mach/arm
-
-	# if you don't have mig, just ignore this for now
-	#for defs in clock_reply exc mach_exc notify; do
-	#    mig -server /dev/null -user /dev/null -header /dev/null \
-	#        -sheader mach/"${defs}"_server.h mach/"${defs}".defs
-	#done
 
 	mkdir Kernel
 	echo "libsa"
@@ -801,40 +758,35 @@ toolchain_build() {
 
 	# this step may have a bad hunk in CoreFoundation and thread_status while patching
 	# these errors are to be ignored, as these are changes for issues Apple has now fixed
-	# include.diff is a modified version the telesphoreo patchs to support iPhone 2.2 SDK.
+	# include.diff is a modified version the telesphoreo patches to support iPhone 2.2 SDK.
         pushd "usr/include"
 	patch -p3 -N < "${HERE}/include.diff"
-	wget -qO arm/locks.h http://svn.telesphoreo.org/trunk/tool/patches/locks.h
-
-	mkdir -p GraphicsServices
-	cd GraphicsServices
-	wget -q http://svn.telesphoreo.org/trunk/tool/patches/GraphicsServices.h
-        
+	svn cat -r 530 http://svn.telesphoreo.org/trunk/tool/patches/locks.h > arm/locks.h
         popd
 
 	# Changed some of the below commands from sudo; don't know why they were like that
 	message_status "Checking out iphone-dev repo..."
 	mkdir -p "${CSU_DIR}"
 	cd "${CSU_DIR}"
-	svn co http://iphone-dev.googlecode.com/svn/trunk/csu .
-	cp -a *.o "$TOOLCHAIN/sys"/usr/lib
-	cd "$TOOLCHAIN/sys"/usr/lib
+	svn co -r 280 http://iphone-dev.googlecode.com/svn/trunk/csu .
+	cp -a *.o "$TOOLCHAIN/sys/usr/lib"
+	cd "$TOOLCHAIN/sys/usr/lib"
 	chmod 644 *.o
 	cp -af crt1.o crt1.10.5.o
 	cp -af dylib1.o dylib1.10.5.o
 
 	if [ ! -d $GCC_DIR ]; then
 		message_status "Checking out saurik's llvm-gcc-4.2..."
-		rm -rf "${GCC_DIR}"
-		git clone git://git.saurik.com/llvm-gcc-4.2 "${GCC_DIR}"
-	else
-		message_status "Updating llvm-gcc-4.2..."
-		pushd $GCC_DIR && git pull git://git.saurik.com/llvm-gcc-4.2 master && popd
+		mkdir -p "${GCC_DIR}"
+		pushd "${GCC_DIR}"
+		git clone -n git://git.saurik.com/llvm-gcc-4.2 .
+		git checkout b3dd8400196ccb63fbf10fe036f9f8725b2f0a39
+		popd
 	fi
     
 	message_status "Checking out odcctools..."
 	mkdir -p "${CCTOOLS_DIR}"
-	svn co http://iphone-dev.googlecode.com/svn/branches/odcctools-9.2-ld "${CCTOOLS_DIR}"
+	svn co -r 280 http://iphone-dev.googlecode.com/svn/branches/odcctools-9.2-ld "${CCTOOLS_DIR}"
 
 	message_status "Configuring cctools-iphone..."
 	mkdir -p "$TOOLCHAIN/pre"
@@ -889,7 +841,7 @@ class_dump() {
 			read -p "to try to install it (Y/n)? "
 			([ "$REPLY" == "n" ] || [ "$REPLY" == "no" ]) && exit 1
 			if [ -z `which apt-get` ]; then
-				echo "I can't install class-dump without cydia."
+				echo "I can't install class-dump without Cydia."
 				exit 1
 			fi
 			apt-get install class-dump
@@ -930,8 +882,19 @@ check_environment() {
 		exit 1
 	fi
 	
-	check_commands
-	check_packages
+	# Check for required commands
+	local command
+	local missing
+	for c in $NEEDED_COMMANDS ; do
+		if [ -z $(which $c) ] ; then 
+			missing="$missing $c"
+		fi
+	done
+	if [ "$missing" != "" ] ; then
+		error "The following commands are missing:$missing"
+		error "You may need to install additional software for them using your package manager."
+		exit 1
+	fi
 	
 	# Performs a check for objective-c extensions to gcc
 	if [ ! -z "`LANG=C gcc --help=objc 2>&1 | grep \"warning: unrecognized argument to --help\"`" ]; then
