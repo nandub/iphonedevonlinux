@@ -39,6 +39,7 @@ IPHONEDEV_DIR="`pwd`"
 # 	./toolchain.sh darwin_sources
 # 	./toolchain.sh build
 #	./toolchain.sh classdump (optional)
+#	./toolchain.sh clean
 #    OR simply run:
 #	./toolchain.sh all
 #
@@ -295,7 +296,7 @@ toolchain_extract_headers() {
     cp ${MNT_DIR}/Packages/$PACKAGE $TMP_DIR/iphone.pkg
     cd $TMP_DIR
     xar -xf iphone.pkg Payload
-    zcat Payload | cpio -id "*.h"
+    zcat Payload | cpio -id
     
     # These folders are version named so the SDK version can be verified
     if [ ! -d Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ]; then
@@ -313,7 +314,7 @@ toolchain_extract_headers() {
     cp ${MNT_DIR}/Packages/MacOSX10.5.pkg $TMP_DIR/macosx.pkg
     cd $TMP_DIR 
     xar -xf macosx.pkg Payload
-    zcat Payload | cpio -id "*.h"
+    zcat Payload | cpio -id
     mv -f SDKs/MacOSX10.5.sdk ${SDKS_DIR}
 
     rm -fR $TMP_DIR/*
@@ -831,14 +832,37 @@ toolchain_build() {
 }
 
 class_dump() {
+
+	local IPHONE_SDK_LIBS="${SDKS_DIR}/iPhoneOS${TOOLCHAIN_VERSION}.sdk/System/Library"
+	mkdir -p "${TMP_DIR}"
+
 	if [ -z $IPHONE_IP ]; then
 		echo "This step will extract Objective-C headers from the iPhone frameworks."
 		echo "To do this, you will need SSH access to an iPhone with class-dump"
-		echo "installed, which can be done through cydia."
+		echo "installed, which can be done through Cydia."
 		read -p "What is your iPhone's IP address? " IPHONE_IP
 		[ -z $IPHONE_IP ] && exit 1
 	fi
-	message_status "Logging in to iphone as root@$IPHONE_IP..."
+	
+	message_status "Selecting required SDK components..."
+	[ -d "${SDKS_DIR}/iPhoneOS${TOOLCHAIN_VERSION}.sdk" ] || toolchain_extract_headers
+	for type in PrivateFrameworks; do
+		for folder in `find ${IPHONE_SDK_LIBS}/${type} -name *.framework`; do
+			framework=`basename "${folder}" .framework`
+			mkdir -p "${TMP_DIR}/Frameworks/${framework}"
+			cp "${folder}/${framework}" "${TMP_DIR}/Frameworks/${framework}/"
+		done
+	done
+	
+	message_status "Copying frameworks to iPhone (${IPHONE_IP})..."
+	echo "rm -Rf /tmp/Frameworks" | ssh root@$IPHONE_IP
+	if ! scp -r "${TMP_DIR}/Frameworks" root@$IPHONE_IP:/tmp/; then
+		error "Failed to copy frameworks to iPhone. Check the connection."
+		exit 1
+	fi
+	rm -Rf "${TMP_DIR}/Frameworks"
+	
+	message_status "Class dumping as root@$IPHONE_IP..."
 	ssh root@$IPHONE_IP <<'COMMAND'
 		if [ -z `which class-dump` ]; then
 			echo "It doesn't look like class-dump is installed. Would you like me"
@@ -851,19 +875,17 @@ class_dump() {
 			apt-get install class-dump
 		fi
 		
-		rm -Rf /tmp/Frameworks /tmp/PrivateFrameworks
-		for type in Frameworks PrivateFrameworks; do
-			cd /tmp
-			mkdir -p $type
-			cd $type
-			for framework in /System/Library/$type/*.framework; do
-				FW=`basename $framework .framework`
-				mkdir $FW
-				pushd $FW > /dev/null
-				class-dump -H $framework/$FW
-				popd > /dev/null
-			done
+		for folder in /tmp/Frameworks/*; do
+			framework=`basename $folder`
+			echo $framework
+			pushd $folder > /dev/null
+			if [ -r "$folder/$framework" ]; then
+				class-dump -H $folder/$framework &> /dev/null
+				rm -f "$folder/$framework"
+			fi
+			popd > /dev/null
 		done
+		exit 0
 COMMAND
 	if [ $? ]; then
 		error "Failed to export iPhone frameworks."
@@ -871,8 +893,8 @@ COMMAND
 	fi
 	
 	message_status "Framework headers exported. Copying..."
-	scp root@$IPHONE_IP:/tmp/Frameworks/*  ${IPHONEDEV_DIR}/toolchain/sys/usr/include/
-	scp root@$IPHONE_IP:/tmp/PrivateFrameworks/*  ${IPHONEDEV_DIR}/toolchain/sys/usr/include/
+	scp -r root@$IPHONE_IP:/tmp/Frameworks  "${TMP_DIR}"
+	#yes n | cp -R -i "${TMP_DIR}"/Frameworks/* "${IPHONEDEV_DIR}/toolchain/sys/usr/include/"
 }
 
 check_environment() {
@@ -991,8 +1013,8 @@ case $1 in
 		rm -Rf "${SDKS_DIR}"
 		rm -Rf "${TOOLS_DIR}"
 		rm -Rf "${TMP_DIR}"
-		rm -Rf "${TOOLCHAIN}/src"
-		rm -Rf "$TOOLCHAIN/bld"
+		rm -Rf "${IPHONEDEV_DIR}/toolchain/src/"
+		rm -Rf "${IPHONEDEV_DIR}/toolchain/bld/"
 		[ -r "$IPHONE_SDK_DMG" ] && confirm -N "Do you want me to remove the SDK dmg?" && rm "${IPHONE_SDK_DMG}"
 		[ -r "$FW_DIR/*.ipsw" ] && confirm -N "Do you want me to remove the firmware image(s)?" && rm -Rf "${FW_DIR}"
 		;;
