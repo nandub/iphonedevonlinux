@@ -33,11 +33,7 @@ IPHONEDEV_DIR="`pwd`"
 # Usage
 # ======================
 #
-# 1. Configure $IPHONEDEV_DIR and $TOOLCHAIN_VERSION to desired settings.
-#    The script will operate entirely within $IPHONEDEV_DIR. Basic sanity
-#    checks against the $TOOLCHAIN_VERSION are included.
-#
-# 2. Run these commands in order:
+# Run these commands in order:
 # 	./toolchain.sh headers
 # 	./toolchain.sh firmware
 # 	./toolchain.sh darwin_sources
@@ -997,8 +993,8 @@ case $1 in
 		rm -Rf "${TMP_DIR}"
 		rm -Rf "${TOOLCHAIN}/src"
 		rm -Rf "$TOOLCHAIN/bld"
-		[ -r $IPHONE_SDK_DMG ] && confirm -N "Do you want me to remove the SDK dmg?" && rm "${IPHONE_SDK_DMG}"
-		[ -r $FW_DIR/*.ipsw ] && confirm -N "Do you want me to remove the firmware image(s)?" && rm -Rf "${FW_DIR}"
+		[ -r "$IPHONE_SDK_DMG" ] && confirm -N "Do you want me to remove the SDK dmg?" && rm "${IPHONE_SDK_DMG}"
+		[ -r "$FW_DIR/*.ipsw" ] && confirm -N "Do you want me to remove the firmware image(s)?" && rm -Rf "${FW_DIR}"
 		;;
 
 	*)
@@ -1035,15 +1031,4 @@ case $1 in
 		echo -e "    \ttemporary files, leaving only the compiled toolchain"
 		echo -e "    \tand headers."
 		;;
-esacif [ ! -d $GCC_DIR ]; then
-		message_status "Checking out saurik's llvm-gcc-4.2..."
-		git clone -n git://git.saurik.com/llvm-gcc-4.2 "${GCC_DIR}"
-		pushd "${GCC_DIR}" && git checkout d863b4829a25751554026dccd75d958050f36b69 && popd
-	else
-		pushd "${GCC_DIR}"
-		if ! git checkout d863b4829a25751554026dccd75d958050f36b69; then
-			error "Failed to checkout saurik's llvm-gcc-4.2."
-			exit 1
-		fi
-		popd
-	fi
+esac
