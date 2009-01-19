@@ -11,7 +11,6 @@ LD = $(CC)
 # phone: 
 #   apt-get install ldid
 #
-IP=192.168.1.22
 
 SRC=src/
 IMG=img/
@@ -41,7 +40,7 @@ bundle: HelloToolchain
 deploy: clean bundle
 	@ssh root@$(IP) "cd /Applications/HelloToolchain.app && rm -R * || echo 'not found' "
 	@scp -rp HelloToolchain.app root@$(IP):/Applications
-	@ssh root@$(IP) "cd /Applications/HelloToolchain.app ; ldid -S HelloToolchain_"
+	@ssh root@$(IP) "cd /Applications/HelloToolchain.app ; ldid -S HelloToolchain_; killall SpringBoard"
 
 clean:
 	@rm -f *.o
