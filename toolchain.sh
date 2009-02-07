@@ -25,7 +25,7 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 # What version of the toolchain are we building?
-TOOLCHAIN_VERSION="2.2"
+TOOLCHAIN_VERSION="2.2.1"
 
 # Everything is built relative to IPHONEDEV_DIR
 IPHONEDEV_DIR="`pwd`"
@@ -1016,8 +1016,10 @@ case $1 in
 		rm -Rf "${TMP_DIR}"
 		rm -Rf "${IPHONEDEV_DIR}/toolchain/src/"
 		rm -Rf "${IPHONEDEV_DIR}/toolchain/bld/"
-		[ -r "$IPHONE_SDK_DMG" ] && confirm -N "Do you want me to remove the SDK dmg?" && rm "${IPHONE_SDK_DMG}"
-		[ -r "$FW_DIR/*.ipsw" ] && confirm -N "Do you want me to remove the firmware image(s)?" && rm -Rf "${FW_DIR}"
+		[ -r $IPHONE_SDK_DMG ] && confirm -N "Do you want me to remove the SDK dmg?" && rm "${IPHONE_SDK_DMG}"
+		if confirm -N "Do you want me to remove the firmware image(s)?"; then
+			for fw in $FW_DIR/*.ipsw; do rm $fw; done
+		fi
 		;;
 
 	*)
