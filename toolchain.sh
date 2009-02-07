@@ -89,8 +89,7 @@ MNT_DIR="${FILES_DIR}/mnt"
 FW_DIR="${FILES_DIR}/firmware"
 
 IPHONE_SDK="iphone_sdk_for_iphone_os_*_final.dmg"
-IPHONE_SDK_DMG="${FILES_DIR}/${IPHONE_SDK}"
-IPHONE_SDK_IMG="${FILES_DIR}/iphone_sdk.img"
+[ -z $IPHONE_SDK_DMG ] && IPHONE_SDK_DMG="${FILES_DIR}/${IPHONE_SDK}"
 
 # URLS
 DMG2IMG="http://vu1tur.eu.org/tools/download.pl?dmg2img-1.3.tar.gz"
@@ -161,6 +160,55 @@ message_action() {
 	cecho blue $*
 }
 
+# Platform independent mount command for the DMGs used in this script
+mount_dmg() {
+	# Key provided, we need to decrypt the DMG first
+	if [ ! -z $3 ]; then
+		message_status "Decrypting `basename $1`..."
+		TMP_DECRYPTED=${TMP_DIR}/`basename $1`.decrypted
+		if ! ${TOOLS_DIR}/vfdecrypt -i $1 -o $TMP_DECRYPTED -k $3 &> /dev/null; then
+			error "Failed to decrypt `basename $1`!"
+			exit 1
+		fi
+		local DMG="${TMP_DECRYPTED}"
+	else
+		local DMG="$1"
+	fi
+	if [ "`uname -s`" == "Darwin" ]; then
+		echo "In order to extract `basename $1`, I am going to mount it."
+		echo "This needs to be done as root."
+		sudo hdiutil attach -mountpoint $2 $DMG
+	else
+		# Convert the DMG to an IMG for mounting
+		TMP_IMG=${TMP_DIR}/`basename $DMG .dmg`.img
+		${TOOLS_DIR}/dmg2img -v -i $DMG -o $TMP_IMG
+		echo "In order to extract `basename $1`, I am going to mount it."
+		echo "This needs to be done as root."
+		sudo mount -o loop $TMP_IMG $2
+	fi
+	if [ ! $? == 0 ]; then
+		error "Failed to mount `basename $1`."
+		exit 1
+	fi
+}
+
+# Platform independent umount command for the DMGs used in this script
+umount_dmg() {
+	if [ "`uname -s`" == "Darwin" ]; then
+		sudo hdiutil detach $MNT_DIR
+	else
+		# shouldn't we have a DEBUG var and only
+		# delete the TMP_IMG if DEBUG is not set/true
+		sudo umount -fl $MNT_DIR
+	fi
+	if [ ! $? == 0 ]; then
+		error "Failed to unmount."
+		exit 1
+	fi
+	[ -r $TMP_IMG ] && rm -f $TMP_IMG
+
+}
+
 # Takes a plist string and does a very basic lookup of a particular key value,
 # given a key name and an XPath style path to the key in terms of dict entries
 plist_key() {
@@ -184,25 +232,26 @@ plist_key() {
 # Builds dmg2img decryption tools and vfdecrypt, which we will use later to convert dmgs to
 # images, so that we can mount them.
 build_tools() {
-    mkdir -p $TOOLS_DIR
-    mkdir -p $TMP_DIR
-    ([ -x ${TOOLS_DIR}/dmg2img ] && [ -x ${TOOLS_DIR}/vfdecrypt ]) && return
+	([ -x ${TOOLS_DIR}/dmg2img ] && [ -x ${TOOLS_DIR}/vfdecrypt ]) && return
 
-    message_status "Retrieving and building dmg2img 1.3..."
+	mkdir -p $TOOLS_DIR
+	mkdir -p $TMP_DIR
 
-    cd $TMP_DIR
-    if ! wget -O - $DMG2IMG | tar -zx; then
-    	error "Failed to get and extract dmg2img-1.3. Check errors."
-    	exit 1
-    fi
+	message_status "Retrieving and building dmg2img 1.3..."
+
+	cd $TMP_DIR
+	if ! wget -O - $DMG2IMG | tar -zx; then
+		error "Failed to get and extract dmg2img-1.3. Check errors."
+		exit 1
+	fi
     
-    pushd dmg2img-1.3
+	pushd dmg2img-1.3
     
-    if ! make; then
-    	error "Failed to make dmg2img-1.3."
-    	error "Make sure you have libbz2 and libssl available on your system."
-    	exit 1
-    fi
+	if ! make; then
+		error "Failed to make dmg2img-1.3."
+		error "Make sure you have libbz2 and libssl available on your system."
+		exit 1
+	fi
     
     mv vfdecrypt dmg2img $TOOLS_DIR
     popd
@@ -212,7 +261,7 @@ build_tools() {
 }
 
 toolchain_extract_headers() {
-    [ ! -x ${TOOLS_DIR}/dmg2img ] && build_tools
+    build_tools
     mkdir -p ${MNT_DIR} ${SDKS_DIR} ${TMP_DIR}
     
     # Make sure we don't already have these
@@ -221,11 +270,8 @@ toolchain_extract_headers() {
     	return
     fi
 
-    # Look for the DMG and ask the user if is isn't findable. It's probably possible
-    # to automate the download, however I don't feel it's appropriate at this time considering
-    # that the download size would force the user to leave the script running unattended
-    # for too long.
-    if [ ! -r $IPHONE_SDK_IMG ] && [ ! -r $IPHONE_SDK_DMG ] ; then
+    # Look for the DMG and ask the user if is isn't findable.
+    if ! [ -r $IPHONE_SDK_DMG ] ; then
     	echo "I'm having trouble finding the iPhone SDK. I looked here:"
     	echo $IPHONE_SDK_DMG
     	if ! confirm "Do you have the SDK?"; then
@@ -243,28 +289,21 @@ toolchain_extract_headers() {
     	fi
     fi
 
-    if [ ! -r $IPHONE_SDK_IMG ] ; then
-    	message_status "Converting `basename $IPHONE_SDK_DMG` to img format..."
-        ${TOOLS_DIR}/dmg2img -v $IPHONE_SDK_DMG $IPHONE_SDK_IMG
-        if [ ! -s $IPHONE_SDK_IMG ]; then
-        	error "Failed to extract `basename $IPHONE_SDK_DMG`!"
-        	rm $IPHONE_SDK_IMG
-        	exit 1
-        fi
-    fi
-
     # Inform the user why we suddenly need their password
-    message_status "Trying to mount the iPhone SDK img..."
-    echo "In order to extract `basename $IPHONE_SDK_IMG`, I am going to run:"
-    echo -e "\tsudo mount -o loop $IPHONE_SDK_IMG $MNT_DIR"
-    
-    if ! sudo mount -o loop $IPHONE_SDK_IMG $MNT_DIR ; then
-    	error "Failed to mount ${IPHONE_SDK_IMG} at ${MNT_DIR}!"
-    	exit 1
-    fi
+    message_status "Trying to mount the iPhone SDK dmg..."
+    mount_dmg $IPHONE_SDK_DMG $MNT_DIR
 
     # Check the version of the SDK
-    SDK_VERSION=$(plist_key CFBundleShortVersionString "/" "${MNT_DIR}/iPhone SDK.mpkg/Contents/version.plist" | sed 's/^\([0-9].[0-9].[0-9]\).*$/\1/')
+    # Apple seems to apply a policy of rounding off the last component of the long version number
+    # so we'll do the same here
+    SDK_VERSION=$(plist_key CFBundleShortVersionString "/" "${MNT_DIR}/iPhone SDK.mpkg/Contents/version.plist" | awk '
+    	BEGIN { FS="." }
+   	{
+    		if(substr($4,1,1) >= 5)
+    			$3++
+    		if($3 > 0)	printf "%s.%s.%s", $1, $2, $3
+    		else		printf "%s.%s", $1, $2
+    	}')
     echo "SDK is version ${SDK_VERSION}"
     
     if [ "`vercmp $SDK_VERSION $TOOLCHAIN_VERSION`" == "older" ]; then
@@ -272,7 +311,7 @@ toolchain_extract_headers() {
     	error "SDK is ${SDK_VERSION}. Please download the latest SDK here:"
     	error "http://developer.apple.com/iphone/"
     	echo "Unmounting..."
-    	sudo umount -fl $MNT_DIR
+    	umount_dmg
     	exit 1
     fi
     
@@ -285,7 +324,7 @@ toolchain_extract_headers() {
     if [ ! -r ${MNT_DIR}/Packages/$PACKAGE ]; then
     	error "I tried to extract $PACKAGE but I couldn't find it!"
     	echo "Unmounting..."
-    	sudo umount -fl $MNT_DIR
+    	umount_dmg
     	exit 1
     fi
     
@@ -296,7 +335,8 @@ toolchain_extract_headers() {
     cp ${MNT_DIR}/Packages/$PACKAGE $TMP_DIR/iphone.pkg
     cd $TMP_DIR
     xar -xf iphone.pkg Payload
-    zcat Payload | cpio -id
+    # zcat on OSX needs .Z suffix
+    cat Payload | zcat | cpio -id
     
     # These folders are version named so the SDK version can be verified
     if [ ! -d Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ]; then
@@ -314,19 +354,18 @@ toolchain_extract_headers() {
     cp ${MNT_DIR}/Packages/MacOSX10.5.pkg $TMP_DIR/macosx.pkg
     cd $TMP_DIR 
     xar -xf macosx.pkg Payload
-    zcat Payload | cpio -id
+    cat Payload | zcat | cpio -id
     mv -f SDKs/MacOSX10.5.sdk ${SDKS_DIR}
 
     rm -fR $TMP_DIR/*
 
     message_status "Unmounting iPhone SDK img..."
-    sudo umount -fl $MNT_DIR
-    message_status "Removing `basename $IPHONE_SDK_IMG`..."
-    rm $IPHONE_SDK_IMG
+    cd $HERE
+    umount_dmg
 }
 
 toolchain_extract_firmware() {
-   ([ ! -x ${TOOLS_DIR}/vfdecrypt ] || [ ! -x ${TOOLS_DIR}/dmg2img ]) && build_tools
+   build_tools
    mkdir -p $FW_DIR $MNT_DIR $TMP_DIR
 
     if [ -z "$FW_FILE" ]; then
@@ -335,9 +374,10 @@ toolchain_extract_firmware() {
     		error "I attempted to search for the correct firmware version, but"
     		error "it looks like you have several ipsw files. Please specify"
     		error "one like so:"
-    		error "./toolchain.sh firmware /path/to/firmware/here.ipsw"
+			echo -e "\texport FW_FILE=/path/to/firmware/"
+    		echo -e "\t./toolchain.sh firmware"
     		exit 1
-    	fi
+		fi
     fi
     
     # If we can't find the firmware file we try to download it from the
@@ -346,35 +386,27 @@ toolchain_extract_firmware() {
     	echo "I can't find the firmware image for iPhone/iPod Touch $TOOLCHAIN_VERSION."
     	if ! confirm -N "Do you have it?"; then
 	    	if confirm "Do you want me to download it?"; then
-			APPLE_DL_URL=$(cat ${HERE}/firmware.list | awk '$1 ~ /'"^${TOOLCHAIN_VERSION}$"'/ && $2 ~ /^iPhone\(3G\)$/ { print $3; }')
-			FW_FILE=`basename "${APPLE_DL_URL}"`
-			if [ ! $APPLE_DL_URL ] ; then
-			    error "Can't find a download url for the toolchain version and platform specified."
-			    error "You may have to download it manually.".
-			    exit 1;
-			else 
-			    message_status "Downloading: $FW_FILE"
-			    cd $TMP_DIR
-			    wget -nc -c $APPLE_DL_URL
-			    mv $FW_FILE $FW_DIR
-			    FW_FILE=$FW_DIR/$FW_FILE
+				APPLE_DL_URL=$(cat ${HERE}/firmware.list | awk '$1 ~ /'"^${TOOLCHAIN_VERSION}$"'/ && $2 ~ /^iPhone\(3G\)$/ { print $3; }')
+				FW_FILE=`basename "${APPLE_DL_URL}"`
+				if [ ! $APPLE_DL_URL ] ; then
+				    error "Can't find a download url for the toolchain version and platform specified."
+				    error "You may have to download it manually.".
+				    exit 1
+				else 
+				    message_status "Downloading: $FW_FILE"
+				    cd $TMP_DIR
+				    wget -nc -c $APPLE_DL_URL
+				    mv $FW_FILE $FW_DIR
+				    FW_FILE=$FW_DIR/$FW_FILE
+				fi
 			fi
 		else
-			error "I need the firmware image to build the toolchain."
-			exit 1
-		fi
-	else
-		while [ ! -a $FW_FILE ] && [ -z $FW_FILE ]; do
-			read -p "Location of firmware image: " FW_FILE
-			[ ! -a $FW_FILE ] && error "File not found."
-		done
-		
-		if [ ! -a $FW_FILE ]; then
-			error "I need the firmware image to build the toolchain."
-			exit 1
+			while [ ! -r "$FW_FILE" ]; do
+				read -p "Location of firmware image: " FW_FILE
+				[ ! -a $FW_FILE ] && error "File not found."
+			done
 		fi
 	fi
-    fi
     
     cd "$FW_DIR"
     unzip -d "${TMP_DIR}" -o "${FW_FILE}" Restore.plist
@@ -386,6 +418,7 @@ toolchain_extract_firmware() {
     FW_BUILD_VERSION=$(plist_key ProductBuildVersion "/" "${TMP_DIR}/Restore.plist")
     FW_RESTORE_RAMDISK=$(plist_key User "/RestoreRamDisks/" "${TMP_DIR}/Restore.plist")
     FW_RESTORE_SYSTEMDISK=$(plist_key User "/SystemRestoreImages/" "${TMP_DIR}/Restore.plist")
+    FW_VERSION_DIR="${FW_DIR}/${FW_PRODUCT_VERSION}_${FW_BUILD_VERSION}"
     
     cecho bold "Firmware Details"
     echo "Device Class: ${FW_DEVICE_CLASS}"
@@ -406,7 +439,6 @@ toolchain_extract_firmware() {
     message_status "Unzipping `basename $FW_RESTORE_SYSTEMDISK`..."
     unzip -d "${TMP_DIR}" -o "${FW_FILE}" "${FW_RESTORE_SYSTEMDISK}"
 
-    message_status "Decrypting firmware image..."
     if [ -z "$DECRYPTION_KEY_SYSTEM" ] ; then
         echo "We need the decryption key for `basename $FW_RESTORE_SYSTEMDISK`."
         echo "I'm going to try to fetch it from $IPHONEWIKI_KEY_URL...."
@@ -415,62 +447,31 @@ toolchain_extract_firmware() {
             /<p>.*$/ && found { sub(/.*<p>/, "", $0); print toupper($0); exit; }' )
         if [ ! "$DECRYPTION_KEY_SYSTEM" ] ; then
             error "Sorry, no decryption key for system partition found!"
-            exit 1;
+            exit 1
         fi
         echo "I found it!"
     fi
 
-    echo "Starting vfdecrypt with decryption key:"
-    echo "$DECRYPTION_KEY_SYSTEM"
-    cd "${TMP_DIR}"
-    ${TOOLS_DIR}/vfdecrypt -i"${FW_RESTORE_SYSTEMDISK}" \
-    			   -o"${FW_RESTORE_SYSTEMDISK}.decrypted" \
-    			   -k "$DECRYPTION_KEY_SYSTEM" &> /dev/null
+	message_status "Mounting ${FW_RESTORE_SYSTEMDISK}..."
+	mount_dmg "${TMP_DIR}/${FW_RESTORE_SYSTEMDISK}" "${MNT_DIR}" "${DECRYPTION_KEY_SYSTEM}"
 
-    if [ ! -s "${FW_RESTORE_SYSTEMDISK}.decrypted" ]; then
-    	error "Decryption of `basename $FW_RESTORE_SYSTEMDISK` failed!"
-    	exit 1
-    fi
-    
-    message_status "`basename $FW_RESTORE_SYSTEMDISK` decrypted!"
-
-    FW_VERSION_DIR="${FW_DIR}/${FW_PRODUCT_VERSION}_${FW_BUILD_VERSION}"
-    FW_SYSTEM_DMG="${TMP_DIR}/root_system.dmg"
-
-    mkdir -p "${FW_VERSION_DIR}"
-
-    if [ ! -r ${FW_SYSTEM_DMG} ] ; then
-    	message_status "Extracting decrypted dmg..."
-        ${TOOLS_DIR}/dmg2img -v "${FW_RESTORE_SYSTEMDISK}.decrypted" ${FW_SYSTEM_DMG}
-    fi
-
-    message_status "Trying to mount `basename ${FW_SYSTEM_DMG}`..."
-    echo "I am about to mount a file using the command:"
-    echo -e "\tsudo mount -t hfsplus -o loop \"${FW_SYSTEM_DMG}\" \"${MNT_DIR}\""
-    
-    if ! sudo mount -t hfsplus -o loop "${FW_SYSTEM_DMG}" "${MNT_DIR}" ; then
-    	error "Failed to mount $(basename "${FW_SYSTEM_DMG}")."
-    	exit 1
-    fi
-    
     cd "${MNT_DIR}"
     message_status "Copying required components of the firmware..."
-    sudo cp -Ra * "${FW_VERSION_DIR}"
-    sudo chown -R `id --user`:`id --group` $FW_VERSION_DIR
+
+    mkdir -p "${FW_VERSION_DIR}"
+    sudo cp -R -p * "${FW_VERSION_DIR}"
+    sudo chown -R `id -u`:`id -g` $FW_VERSION_DIR
     message_status "Unmounting..."
 
     cd "${HERE}"
-    sudo umount -fl "${MNT_DIR}"
+    umount_dmg
     
     if [ -s "${FW_DIR}/current" ] ; then
-        rm "${FW_DIR}/current";
+        rm "${FW_DIR}/current"
     fi
 
     ln -s "${FW_VERSION_DIR}" "${FW_DIR}/current"
-    
-    # Cleanup
-    rm "${TMP_DIR}/$FW_RESTORE_SYSTEMDISK" "${TMP_DIR}/${FW_RESTORE_SYSTEMDISK}.decrypted" \
-    	$FW_SYSTEM_DMG "${TMP_DIR}/Restore.plist"
+    rm "${TMP_DIR}/$FW_RESTORE_SYSTEMDISK" "${TMP_DIR}/${FW_RESTORE_SYSTEMDISK}.decrypted" $FW_SYSTEM_DMG "${TMP_DIR}/Restore.plist"
 }
 
 toolchain_download_darwin_sources() {
@@ -531,7 +532,7 @@ toolchain_download_darwin_sources() {
 
 	# Get what we're here for
 	message_status "Attempting to download tool sources..."
-	wget --max-redirect=0 --no-clobber --keep-session-cookies --load-cookies=cookies.tmp --input-file=${HERE}/darwin-tools.list
+	wget --no-clobber --keep-session-cookies --load-cookies=cookies.tmp --input-file=${HERE}/darwin-tools.list
 	message_status "Finished downloading!"
 
 	rm cookies.tmp
@@ -584,165 +585,165 @@ toolchain_build() {
 			message_status "Copying required iPhone filesystem components..."
 			# I have tried to avoid copying the permissions (not using -a) because they
 			# get in the way later down the track. This might be wrong but it seems okay.
-			cp -rdH ${FW_DIR}/current/* "$TOOLCHAIN/sys"
+			cp -R -p ${FW_DIR}/current/* "$TOOLCHAIN/sys"
 			rm -rf usr/include
 		fi
 	else
 		message_status "Copying required iPhone filesystem components..."
-		cp -rdH ${FW_DIR}/current/* "$TOOLCHAIN/sys" # As above
+		cp -R -p ${FW_DIR}/current/* "$TOOLCHAIN/sys" # As above
 		rm -rf usr/include
 	fi
 
 	# Presently working here and below
 	message_status "Copying SDK headers..."
 	echo "Leopard"
-	cp -a "${LEOPARD_SDK_INC}" usr/include
+	cp -R -p "${LEOPARD_SDK_INC}" usr/include
 	cd usr/include
 	ln -sf . System
 
-	cp -af "${IPHONE_SDK_INC}"/* .
-	cp -af "${DARWIN_SOURCES_DIR}"/xnu-1228.7.58/osfmk/* .
-	cp -af "${DARWIN_SOURCES_DIR}"/xnu-1228.7.58/bsd/* . 
+	cp -R -pf "${IPHONE_SDK_INC}"/* .
+	cp -R -pf "${DARWIN_SOURCES_DIR}"/xnu-1228.7.58/osfmk/* .
+	cp -R -pf "${DARWIN_SOURCES_DIR}"/xnu-1228.7.58/bsd/* . 
 
 	echo "mach"
-	cp -af "${DARWIN_SOURCES_DIR}"/cctools-*/include/mach .
-	cp -af "${DARWIN_SOURCES_DIR}"/cctools-*/include/mach-o .
-	cp -af "${IPHONE_SDK_INC}"/mach-o/dyld.h mach-o
+	cp -R -pf "${DARWIN_SOURCES_DIR}"/cctools-*/include/mach .
+	cp -R -pf "${DARWIN_SOURCES_DIR}"/cctools-*/include/mach-o .
+	cp -R -pf "${IPHONE_SDK_INC}"/mach-o/dyld.h mach-o
 
-	cp -af "${LEOPARD_SDK_INC}"/mach/machine mach
-	cp -af "${LEOPARD_SDK_INC}"/mach/machine.h mach
-	cp -af "${LEOPARD_SDK_INC}"/machine .
-	cp -af "${IPHONE_SDK_INC}"/machine .
+	cp -R -pf "${LEOPARD_SDK_INC}"/mach/machine mach
+	cp -R -pf "${LEOPARD_SDK_INC}"/mach/machine.h mach
+	cp -R -pf "${LEOPARD_SDK_INC}"/machine .
+	cp -R -pf "${IPHONE_SDK_INC}"/machine .
 
-	cp -af "${IPHONE_SDK_INC}"/sys/cdefs.h sys
-	cp -af "${LEOPARD_SDK_INC}"/sys/dtrace.h sys
+	cp -R -pf "${IPHONE_SDK_INC}"/sys/cdefs.h sys
+	cp -R -pf "${LEOPARD_SDK_INC}"/sys/dtrace.h sys
 
-	cp -af "${LEOPARD_SDK_LIBS}"/Kernel.framework/Versions/A/Headers/machine/disklabel.h machine
-	cp -af "${DARWIN_SOURCES_DIR}"/configd-*/dnsinfo/dnsinfo.h .
-	cp -a "${DARWIN_SOURCES_DIR}"/Libc-*/include/kvm.h .
-	cp -a "${DARWIN_SOURCES_DIR}"/launchd-*/launchd/src/*.h .
+	cp -R -pf "${LEOPARD_SDK_LIBS}"/Kernel.framework/Versions/A/Headers/machine/disklabel.h machine
+	cp -R -pf "${DARWIN_SOURCES_DIR}"/configd-*/dnsinfo/dnsinfo.h .
+	cp -R -p "${DARWIN_SOURCES_DIR}"/Libc-*/include/kvm.h .
+	cp -R -p "${DARWIN_SOURCES_DIR}"/launchd-*/launchd/src/*.h .
 
-	cp -a i386/disklabel.h arm
-	cp -a mach/i386/machine_types.defs mach/arm
+	cp -R -p i386/disklabel.h arm
+	cp -R -p mach/i386/machine_types.defs mach/arm
 
 	mkdir -p Kernel
 	echo "libsa"
-	cp -a "${DARWIN_SOURCES_DIR}"/xnu-1228.3.13/libsa/libsa Kernel
+	cp -R -p "${DARWIN_SOURCES_DIR}"/xnu-1228.3.13/libsa/libsa Kernel
 
 	mkdir -p Security
 	echo "libsecurity"
-	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_authorization-*/lib/*.h Security
-	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_cdsa_client-*/lib/*.h Security
-	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_cdsa_utilities-*/lib/*.h Security
-	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_cms-*/lib/*.h Security
-	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_codesigning-*/lib/*.h Security
-	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_cssm-*/lib/*.h Security
-	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_keychain-*/lib/*.h Security
-	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_mds-*/lib/*.h Security
-	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_ssl-*/lib/*.h Security
-	cp -a "${DARWIN_SOURCES_DIR}"/libsecurity_utilities-*/lib/*.h Security
-	cp -a "${DARWIN_SOURCES_DIR}"/libsecurityd-*/lib/*.h Security
+	cp -R -p "${DARWIN_SOURCES_DIR}"/libsecurity_authorization-*/lib/*.h Security
+	cp -R -p "${DARWIN_SOURCES_DIR}"/libsecurity_cdsa_client-*/lib/*.h Security
+	cp -R -p "${DARWIN_SOURCES_DIR}"/libsecurity_cdsa_utilities-*/lib/*.h Security
+	cp -R -p "${DARWIN_SOURCES_DIR}"/libsecurity_cms-*/lib/*.h Security
+	cp -R -p "${DARWIN_SOURCES_DIR}"/libsecurity_codesigning-*/lib/*.h Security
+	cp -R -p "${DARWIN_SOURCES_DIR}"/libsecurity_cssm-*/lib/*.h Security
+	cp -R -p "${DARWIN_SOURCES_DIR}"/libsecurity_keychain-*/lib/*.h Security
+	cp -R -p "${DARWIN_SOURCES_DIR}"/libsecurity_mds-*/lib/*.h Security
+	cp -R -p "${DARWIN_SOURCES_DIR}"/libsecurity_ssl-*/lib/*.h Security
+	cp -R -p "${DARWIN_SOURCES_DIR}"/libsecurity_utilities-*/lib/*.h Security
+	cp -R -p "${DARWIN_SOURCES_DIR}"/libsecurityd-*/lib/*.h Security
 
 	mkdir -p DiskArbitration
 	echo "DiskArbitration"
-	cp -a "${DARWIN_SOURCES_DIR}"/DiskArbitration-*/DiskArbitration/*.h DiskArbitration
+	cp -R -p "${DARWIN_SOURCES_DIR}"/DiskArbitration-*/DiskArbitration/*.h DiskArbitration
 
 	echo "iokit"
-	cp -a "${DARWIN_SOURCES_DIR}"/xnu-*/iokit/IOKit .
-	cp -a "${DARWIN_SOURCES_DIR}"/IOKitUser-*/*.h IOKit
+	cp -R -p "${DARWIN_SOURCES_DIR}"/xnu-*/iokit/IOKit .
+	cp -R -p "${DARWIN_SOURCES_DIR}"/IOKitUser-*/*.h IOKit
 
-	cp -a "${DARWIN_SOURCES_DIR}"/IOGraphics-*/IOGraphicsFamily/IOKit/graphics IOKit
-	cp -a "${DARWIN_SOURCES_DIR}"/IOHIDFamily-*/IOHIDSystem/IOKit/hidsystem IOKit
+	cp -R -p "${DARWIN_SOURCES_DIR}"/IOGraphics-*/IOGraphicsFamily/IOKit/graphics IOKit
+	cp -R -p "${DARWIN_SOURCES_DIR}"/IOHIDFamily-*/IOHIDSystem/IOKit/hidsystem IOKit
 
 	for proj in kext ps pwr_mgt; do
 		mkdir -p IOKit/"${proj}"
-		cp -a "${DARWIN_SOURCES_DIR}"/IOKitUser-*/"${proj}".subproj/*.h IOKit/"${proj}"
+		cp -R -p "${DARWIN_SOURCES_DIR}"/IOKitUser-*/"${proj}".subproj/*.h IOKit/"${proj}"
 	done
     
 	ln -s IOKit/kext/bootfiles.h .
 
 	mkdir -p IOKit/storage
-	cp -a "${DARWIN_SOURCES_DIR}"/IOStorageFamily-*/*.h IOKit/storage
-	cp -a "${DARWIN_SOURCES_DIR}"/IOCDStorageFamily-*/*.h IOKit/storage
-	cp -a "${DARWIN_SOURCES_DIR}"/IODVDStorageFamily-*/*.h IOKit/storage
+	cp -R -p "${DARWIN_SOURCES_DIR}"/IOStorageFamily-*/*.h IOKit/storage
+	cp -R -p "${DARWIN_SOURCES_DIR}"/IOCDStorageFamily-*/*.h IOKit/storage
+	cp -R -p "${DARWIN_SOURCES_DIR}"/IODVDStorageFamily-*/*.h IOKit/storage
 
 	mkdir DirectoryService
-	cp -a "${DARWIN_SOURCES_DIR}"/DirectoryService-*/APIFramework/*.h DirectoryService
+	cp -R -p "${DARWIN_SOURCES_DIR}"/DirectoryService-*/APIFramework/*.h DirectoryService
 
 	mkdir DirectoryServiceCore
-	cp -a "${DARWIN_SOURCES_DIR}"/DirectoryService-*/CoreFramework/Private/*.h DirectoryServiceCore
-	cp -a "${DARWIN_SOURCES_DIR}"/DirectoryService-*/CoreFramework/Public/*.h DirectoryServiceCore 
+	cp -R -p "${DARWIN_SOURCES_DIR}"/DirectoryService-*/CoreFramework/Private/*.h DirectoryServiceCore
+	cp -R -p "${DARWIN_SOURCES_DIR}"/DirectoryService-*/CoreFramework/Public/*.h DirectoryServiceCore 
 
 	mkdir -p SystemConfiguration
 	echo "configd"
-	cp -a "${DARWIN_SOURCES_DIR}"/configd-*/SystemConfiguration.fproj/*.h SystemConfiguration
+	cp -R -p "${DARWIN_SOURCES_DIR}"/configd-*/SystemConfiguration.fproj/*.h SystemConfiguration
 
 	mkdir -p WebCore
-	cp -a  "${DARWIN_SOURCES_DIR}"/WebCore-*/bindings/objc/*.h WebCore
+	cp -R -p  "${DARWIN_SOURCES_DIR}"/WebCore-*/bindings/objc/*.h WebCore
 
 	echo "CoreFoundation"
 	mkdir CoreFoundation
-	cp -a "${LEOPARD_SDK_LIBS}"/CoreFoundation.framework/Versions/A/Headers/* CoreFoundation
-	cp -af "${DARWIN_SOURCES_DIR}"/CF-*/*.h CoreFoundation
-	cp -af "${IPHONE_SDK_LIBS}"/CoreFoundation.framework/Headers/* CoreFoundation
+	cp -R -p "${LEOPARD_SDK_LIBS}"/CoreFoundation.framework/Versions/A/Headers/* CoreFoundation
+	cp -R -pf "${DARWIN_SOURCES_DIR}"/CF-*/*.h CoreFoundation
+	cp -R -pf "${IPHONE_SDK_LIBS}"/CoreFoundation.framework/Headers/* CoreFoundation
 
 	for framework in AudioToolbox AudioUnit CoreAudio QuartzCore Foundation; do
 		echo $framework
 		mkdir -p $framework
-		cp -a "${LEOPARD_SDK_LIBS}"/"${framework}".framework/Versions/*/Headers/* "${framework}"
-		cp -af "${IPHONE_SDK_LIBS}"/"${framework}".framework/Headers/* "${framework}"
+		cp -R -p "${LEOPARD_SDK_LIBS}"/"${framework}".framework/Versions/?/Headers/* "${framework}"
+		cp -R -pf "${IPHONE_SDK_LIBS}"/"${framework}".framework/Headers/* "${framework}"
 	done
 
 	# UIKit fix (these are only the public framework headers)
 	mkdir -p UIKit
-	cp -a "${IPHONE_SDK_LIBS}"/UIKit.framework/Headers/* UIKit 
+	cp -R -p "${IPHONE_SDK_LIBS}"/UIKit.framework/Headers/* UIKit 
 
 	for framework in AppKit Cocoa CoreData CoreVideo JavaScriptCore OpenGL WebKit; do
 		echo $framework
 		mkdir -p $framework
-		cp -a "${LEOPARD_SDK_LIBS}"/"${framework}".framework/Versions/*/Headers/* $framework
+		cp -R -p "${LEOPARD_SDK_LIBS}"/"${framework}".framework/Versions/?/Headers/* $framework
 	done
 	
 	mkdir AddressBook
-	cp -aH "${IPHONE_SDK_LIBS}"/AddressBook.framework/Headers/* AddressBook
+	cp -R -pH "${IPHONE_SDK_LIBS}"/AddressBook.framework/Headers/* AddressBook
 
 	echo "Application Services"
 	mkdir -p ApplicationServices
-	cp -a "${LEOPARD_SDK_LIBS}"/ApplicationServices.framework/Versions/A/Headers/* ApplicationServices
+	cp -R -p "${LEOPARD_SDK_LIBS}"/ApplicationServices.framework/Versions/A/Headers/* ApplicationServices
 	for service in "${LEOPARD_SDK_LIBS}"/ApplicationServices.framework/Versions/A/Frameworks/*.framework; do
 		echo -e "\t$(basename $service .framework)"
 		mkdir -p "$(basename $service .framework)"
-		cp -a $service/Versions/A/Headers/* "$(basename $service .framework)"
+		cp -R -p $service/Versions/A/Headers/* "$(basename $service .framework)"
 	done
 
 	echo "Core Services"
 	mkdir -p CoreServices
-	cp -a "${LEOPARD_SDK_LIBS}"/CoreServices.framework/Versions/A/Headers/* CoreServices
+	cp -R -p "${LEOPARD_SDK_LIBS}"/CoreServices.framework/Versions/A/Headers/* CoreServices
 	for service in "${LEOPARD_SDK_LIBS}"/CoreServices.framework/Versions/A/Frameworks/*.framework; do
 		mkdir -p "$(basename $service .framework)"
-		cp -a $service/Versions/A/Headers/* "$(basename $service .framework)"
+		cp -R -p $service/Versions/A/Headers/* "$(basename $service .framework)"
 	done
 	mkdir WebCore
 	echo "WebCore"
-	cp -a "${DARWIN_SOURCES_DIR}"/WebCore-*/bindings/objc/*.h WebCore
-	cp -a "${DARWIN_SOURCES_DIR}"/WebCore-*/bridge/mac/*.h WebCore 
+	cp -R -p "${DARWIN_SOURCES_DIR}"/WebCore-*/bindings/objc/*.h WebCore
+	cp -R -p "${DARWIN_SOURCES_DIR}"/WebCore-*/bridge/mac/*.h WebCore 
 	for subdir in css dom editing history html loader page platform{,/{graphics,text}} rendering; do
-	    cp -a "${DARWIN_SOURCES_DIR}"/WebCore-*/"${subdir}"/*.h WebCore
+	    cp -R -p "${DARWIN_SOURCES_DIR}"/WebCore-*/"${subdir}"/*.h WebCore
 	done
 
-	cp -a "${DARWIN_SOURCES_DIR}"/WebCore-*/css/CSSPropertyNames.in WebCore
+	cp -R -p "${DARWIN_SOURCES_DIR}"/WebCore-*/css/CSSPropertyNames.in WebCore
 	(cd WebCore; perl "${DARWIN_SOURCES_DIR}"/WebCore-*/css/makeprop.pl)
 
 	mkdir kjs
-	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/kjs/*.h kjs
+	cp -R -p "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/kjs/*.h kjs
 
 	mkdir -p wtf/unicode/icu
-	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/wtf/*.h wtf
-	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/wtf/unicode/*.h wtf/unicode
-	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/wtf/unicode/icu/*.h wtf/unicode/icu
+	cp -R -p "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/wtf/*.h wtf
+	cp -R -p "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/wtf/unicode/*.h wtf/unicode
+	cp -R -p "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/wtf/unicode/icu/*.h wtf/unicode/icu
 
 	mkdir unicode
-	cp -a "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/icu/unicode/*.h unicode
+	cp -R -p "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/icu/unicode/*.h unicode
 	
 	cd "$TOOLCHAIN/sys"
 	ln -sf gcc/darwin/4.0/stdint.h usr/include
@@ -768,11 +769,11 @@ toolchain_build() {
 	mkdir -p "${CSU_DIR}"
 	cd "${CSU_DIR}"
 	svn co -r 280 http://iphone-dev.googlecode.com/svn/trunk/csu .
-	cp -a *.o "$TOOLCHAIN/sys/usr/lib"
+	cp -R -p *.o "$TOOLCHAIN/sys/usr/lib"
 	cd "$TOOLCHAIN/sys/usr/lib"
 	chmod 644 *.o
-	cp -af crt1.o crt1.10.5.o
-	cp -af dylib1.o dylib1.10.5.o
+	cp -R -pf crt1.o crt1.10.5.o
+	cp -R -pf dylib1.o dylib1.10.5.o
 
 	if [ ! -d $GCC_DIR ]; then
 		message_status "Checking out saurik's llvm-gcc-4.2..."
@@ -780,7 +781,7 @@ toolchain_build() {
 		pushd "${GCC_DIR}" && git checkout b3dd8400196ccb63fbf10fe036f9f8725b2f0a39 && popd
 	else
 		pushd "${GCC_DIR}"
-		if ! git checkout b3dd8400196ccb63fbf10fe036f9f8725b2f0a39; then
+		if ! git pull git://git.saurik.com/llvm-gcc-4.2 || ! git checkout b3dd8400196ccb63fbf10fe036f9f8725b2f0a39; then
 			error "Failed to checkout saurik's llvm-gcc-4.2."
 			exit 1
 		fi
@@ -925,7 +926,7 @@ check_environment() {
 	# Performs a check for objective-c extensions to gcc
 	if [ ! -z "`LANG=C gcc --help=objc 2>&1 | grep \"warning: unrecognized argument to --help\"`" ]; then
 		error "GCC does not appear to support Objective-C."
-		error "You may need to install support."
+		error "You may need to install support, for example the \"gobjc\" package in debian."
 		exit
 	fi
 	
