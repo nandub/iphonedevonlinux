@@ -694,9 +694,11 @@ toolchain_build() {
 		cp -R -pf "${IPHONE_SDK_LIBS}"/"${framework}".framework/Headers/* "${framework}"
 	done
 
-	# UIKit fix (these are only the public framework headers)
-	mkdir -p UIKit
-	cp -R -p "${IPHONE_SDK_LIBS}"/UIKit.framework/Headers/* UIKit 
+	for framework in UIKit AddressBook CoreLocation; do
+		echo $framework
+		mkdir -p $framework
+		cp -R -pf "${IPHONE_SDK_LIBS}"/"${framework}".framework/Headers/* "${framework}"
+	done
 
 	for framework in AppKit Cocoa CoreData CoreVideo JavaScriptCore OpenGL WebKit; do
 		echo $framework
@@ -704,9 +706,6 @@ toolchain_build() {
 		cp -R -p "${LEOPARD_SDK_LIBS}"/"${framework}".framework/Versions/?/Headers/* $framework
 	done
 	
-	mkdir AddressBook
-	cp -R -pH "${IPHONE_SDK_LIBS}"/AddressBook.framework/Headers/* AddressBook
-
 	echo "Application Services"
 	mkdir -p ApplicationServices
 	cp -R -p "${LEOPARD_SDK_LIBS}"/ApplicationServices.framework/Versions/A/Headers/* ApplicationServices
