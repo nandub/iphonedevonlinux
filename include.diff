@@ -9,45 +9,43 @@
  #include <stdio.h>
  
  #if defined(__cplusplus)
-diff --git /usr/include/Availability.h /usr/include/Availability.h
-index 1c3e1cf..cb81edb 100644
---- /usr/include/Availability.h
-+++ /usr/include/Availability.h
-@@ -98,6 +98,8 @@
+--- /usr/include/Availability.h.orig	2009-08-22 14:42:00.246652205 +0200
++++ /usr/include/Availability.h	2009-09-05 14:13:01.422661070 +0200
+@@ -117,6 +117,8 @@
  #define __MAC_10_6      1060
  #define __MAC_NA        9999   /* not available */
  
 +#define __IPHONE_1_0     10000  
 +#define __IPHONE_1_2     10200  
  #define __IPHONE_2_0     20000  
- #define __IPHONE_NA      99999  /* not available */
-
---- /usr/include/AvailabilityInternal.h.orig	2009-01-08 16:58:40.000000000 +1100
-+++ /usr/include/AvailabilityInternal.h	2009-01-08 17:09:49.000000000 +1100
-@@ -51,11 +51,6 @@
-     #ifndef __IPHONE_OS_VERSION_MAX_ALLOWED
-         #define __IPHONE_OS_VERSION_MAX_ALLOWED     __IPHONE_2_2
+ #define __IPHONE_2_1     20100  
+ #define __IPHONE_2_2     20200
+--- /usr/include/AvailabilityInternal.h.orig       2009-09-06 15:54:52.072732297 +0200
++++ /usr/include/AvailabilityInternal.h    2009-09-06 15:54:07.948042542 +0200        
+@@ -52,11 +52,14 @@                                                                        
+         #define __IPHONE_OS_VERSION_MAX_ALLOWED     __IPHONE_3_0                          
      #endif
--    // make sure a valid min is set
+     // make sure a valid min is set
 -    #if __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_2_0
 -        #undef __IPHONE_OS_VERSION_MIN_REQUIRED
--        #define __IPHONE_OS_VERSION_MIN_REQUIRED    __IPHONE_2_0 
--    #endif
-     
-     // set up internal macros (up to 2.0)
-      #if __IPHONE_OS_VERSION_MAX_ALLOWED < __IPHONE_2_0
-@@ -105,6 +101,27 @@
-         #define __AVAILABILITY_INTERNAL__IPHONE_2_1_DEP__IPHONE_2_2    __AVAILABILITY_INTERNAL_DEPRECATED
-         #define __AVAILABILITY_INTERNAL__IPHONE_2_2_DEP__IPHONE_2_2    __AVAILABILITY_INTERNAL_DEPRECATED
-     #endif
-+     #if __IPHONE_OS_VERSION_MAX_ALLOWED < __IPHONE_1_2
+-        #define __IPHONE_OS_VERSION_MIN_REQUIRED    __IPHONE_2_0
++    #if __IPHONE_OS_VERSION_MAX_ALLOWED < __IPHONE_1_2
 +        #define __AVAILABILITY_INTERNAL__IPHONE_1_2          __AVAILABILITY_INTERNAL_UNAVAILABLE
 +    #elif __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_1_2
 +        #define __AVAILABILITY_INTERNAL__IPHONE_1_2          __AVAILABILITY_INTERNAL_WEAK_IMPORT
 +    #else
 +        #define __AVAILABILITY_INTERNAL__IPHONE_1_2
-+    #endif
-+    
+     #endif
+-
++
+     // set up internal macros (up to 2.0)
+      #if __IPHONE_OS_VERSION_MAX_ALLOWED < __IPHONE_2_0
+         #define __AVAILABILITY_INTERNAL__IPHONE_2_0          __AVAILABILITY_INTERNAL_UNAVAILABLE
+@@ -138,6 +141,19 @@
+     // set up internal macros (n/a)
+     #define __AVAILABILITY_INTERNAL__IPHONE_NA                     __AVAILABILITY_INTERNAL_UNAVAILABLE
+     #define __AVAILABILITY_INTERNAL__IPHONE_NA_DEP__IPHONE_NA      __AVAILABILITY_INTERNAL_UNAVAILABLE
++
 +    #if __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_1_2
 +        #define __AVAILABILITY_INTERNAL__IPHONE_1_0_DEP__IPHONE_1_2        __AVAILABILITY_INTERNAL_DEPRECATED
 +    #else
@@ -60,11 +58,9 @@ index 1c3e1cf..cb81edb 100644
 +        #define __AVAILABILITY_INTERNAL__IPHONE_1_0_DEP__IPHONE_2_0        __AVAILABILITY_INTERNAL__IPHONE_1_0
 +        #define __AVAILABILITY_INTERNAL__IPHONE_1_2_DEP__IPHONE_2_0        __AVAILABILITY_INTERNAL__IPHONE_1_2
 +    #endif
-+    
-     // set up internal macros (n/a)
-     #define __AVAILABILITY_INTERNAL__IPHONE_NA                     __AVAILABILITY_INTERNAL_UNAVAILABLE 
-     #define __AVAILABILITY_INTERNAL__IPHONE_NA_DEP__IPHONE_NA      __AVAILABILITY_INTERNAL_UNAVAILABLE 
 
+ #elif defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__)
+     // compiler for Mac OS X sets __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__
 --- /usr/include/AvailabilityMacros.h	2008-02-27 06:49:24.000000000 +0000
 +++ /usr/include/AvailabilityMacros.h	2008-03-28 14:10:13.000000000 +0000
 @@ -84,7 +84,13 @@
@@ -513,10 +509,8 @@ index 2834b48..6c14349 100644
  #if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
  #ifndef ARM_MCONTEXT_SIZE
  #define ARM_MCONTEXT_SIZE       (ARM_THREAD_STATE_COUNT + ARM_VFP_STATE_COUNT + ARM_EXCEPTION_STATE_COUNT) * sizeof(int)
-diff --git /usr/include/mach/arm/thread_status.h /usr/include/mach/arm/thread_status.h
-index 69f9f4f..cc66a92 100755
---- /usr/include/mach/arm/thread_status.h
-+++ /usr/include/mach/arm/thread_status.h
+--- /usr/include/mach/arm/thread_status.h.orig 2006-01-21 00:03:47.000000000 +0100
++++ /usr/include/mach/arm/thread_status.h      2009-09-06 15:08:12.456730542 +0200
 @@ -2,6 +2,7 @@
  #define _MACH_ARM_THREAD_STATUS_H_
 
@@ -525,79 +519,22 @@ index 69f9f4f..cc66a92 100755
 
  typedef struct arm_thread_state {
         unsigned int r0;
-diff --git /usr/include/arm/_types.h /usr/include/arm/_types.h
-index 4817457..30c9891 100644
---- /usr/include/arm/_types.h
-+++ /usr/include/arm/_types.h
-@@ -15,7 +15,7 @@ typedef __signed char		__int8_t;
- typedef char			__int8_t;
- #endif	/* !__GNUC__ */
- typedef unsigned char		__uint8_t;
--typedef	unsigned short		__int16_t;
-+typedef	short			__int16_t;
- typedef	unsigned short		__uint16_t;
- typedef int			__int32_t;
- typedef unsigned int		__uint32_t;
-diff --git /usr/include/util.h /usr/include/util.h
-index c70c6fb..1effc37 100644
---- /usr/include/util.h
-+++ /usr/include/util.h
-@@ -86,9 +86,9 @@
- 
- __BEGIN_DECLS
- struct utmp; /* forward reference to /usr/include/utmp.h */
--void	login(struct utmp *)		__OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0,__MAC_10_5,__IPHONE_NA,__IPHONE_NA);
-+void	login(struct utmp *)		__OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0,__MAC_10_5,__IPHONE_1_2,__IPHONE_2_0);
- int	login_tty(int);
--int	logout(const char *)		__OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0,__MAC_10_5,__IPHONE_NA,__IPHONE_NA);
-+int	logout(const char *)		__OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0,__MAC_10_5,__IPHONE_1_2,__IPHONE_2_0);
- void	logwtmp(const char *, const char *, const char *) __OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0,__MAC_10_5,__IPHONE_2_0,__IPHONE_2_0);
- int	opendev(char *, int, int, char **);
- int	openpty(int *, int *, char *, struct termios *,
---- /usr/include/utmp.h	2008-05-25 06:24:18.000000000 +0000
-+++ /usr/include/utmp.h	2008-06-17 19:26:23.000000000 +0000
+--- /usr/include/utmp.h      2009-09-06 16:19:02.113895580 +0200
++++ /usr/include/utmp.h.orig 2009-09-06 15:53:01.552730577 +0200
 @@ -92,13 +92,13 @@
- 	time_t	ll_time;
- 	char	ll_line[UT_LINESIZE];
- 	char	ll_host[UT_HOSTSIZE];
--}					__OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0,__MAC_10_5,__IPHONE_NA,__IPHONE_NA);
-+}					__OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0,__MAC_10_5,__IPHONE_1_2,__IPHONE_2_0);
- 
+        time_t  ll_time;
+        char    ll_line[UT_LINESIZE];
+        char    ll_host[UT_HOSTSIZE];
+-}                                      __OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0,__MAC_10_5,__IPHONE_1_2,__IPHONE_2_0);
++}                                      __DEPRECATED_IN_MAC_OS_X_VERSION_10_5_AND_LATER;
+
  struct utmp {
- 	char	ut_line[UT_LINESIZE];
- 	char	ut_name[UT_NAMESIZE];
- 	char	ut_host[UT_HOSTSIZE];
- 	long	ut_time;
--}					__OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0,__MAC_10_5,__IPHONE_NA,__IPHONE_NA);
-+}					__OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0,__MAC_10_5,__IPHONE_1_2,__IPHONE_2_0);
- 
+        char    ut_line[UT_LINESIZE];
+        char    ut_name[UT_NAMESIZE];
+        char    ut_host[UT_HOSTSIZE];
+        long    ut_time;
+-}                                      __OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0,__MAC_10_5,__IPHONE_1_2,__IPHONE_2_0);
++}                                      __DEPRECATED_IN_MAC_OS_X_VERSION_10_5_AND_LATER;
+
  #endif /* !_UTMP_H_ */
-diff --git /usr/include/c++/4.0.0/arm-apple-darwin8/bits/c++config.h /usr/include/c++/4.0.0/arm-apple-darwin8/bits/c++config.h
-index b570daa..3309946 100644
---- /usr/include/c++/4.0.0/arm-apple-darwin8/bits/c++config.h
-+++ /usr/include/c++/4.0.0/arm-apple-darwin8/bits/c++config.h
-@@ -127,7 +127,7 @@ namespace std
- #define _GLIBCXX_USE_C99_COMPLEX 1
- 
- // Define if code specialized for wchar_t should be used.
--#define _GLIBCXX_USE_WCHAR_T 1
-+/* #undef _GLIBCXX_USE_WCHAR_T */
- 
- // Define if using setrlimit to set resource limits during 'make check'.
- #define _GLIBCXX_RES_LIMITS 1
-diff --git /usr/include/c++/4.0.0/bits/stringfwd.h /usr/include/c++/4.0.0/bits/stringfwd.h
-index 99d3ce3..cc033d6 100644
---- /usr/include/c++/4.0.0/bits/stringfwd.h
-+++ /usr/include/c++/4.0.0/bits/stringfwd.h
-@@ -61,9 +61,9 @@ namespace std
- 
- #ifdef _GLIBCXX_USE_WCHAR_T
-   template<> struct char_traits<wchar_t>;
-+#endif
- 
-   typedef basic_string<wchar_t> wstring;
--#endif
- } // namespace std
- 
- #endif	// _STRINGFWD_H
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright (c) 2008 iphonedevlinux <iphonedevlinux@googlemail.com>
+# Copyright (c) 2008,2009 iphonedevlinux <iphonedevlinux@googlemail.com>
 # Copyright (c) 2008, 2009 m4dm4n <m4dm4n@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person
@@ -25,7 +25,8 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 # What version of the toolchain are we building?
-TOOLCHAIN_VERSION="2.2.1"
+TOOLCHAIN_VERSION="3.0"
+
 
 # Everything is built relative to IPHONEDEV_DIR
 IPHONEDEV_DIR="`pwd`"
@@ -40,7 +41,7 @@ IPHONEDEV_DIR="`pwd`"
 # 	./toolchain.sh build
 #	./toolchain.sh classdump (optional)
 #	./toolchain.sh clean
-#    OR simply run:
+#	OR simply run:
 #	./toolchain.sh all
 #
 #
@@ -88,12 +89,12 @@ TMP_DIR="${IPHONEDEV_DIR}/tmp"
 MNT_DIR="${FILES_DIR}/mnt"
 FW_DIR="${FILES_DIR}/firmware"
 
-IPHONE_SDK="iphone_sdk_for_iphone_os_*_final.dmg"
+IPHONE_SDK="iphone_sdk_*_final.dmg"
 [ -z $IPHONE_SDK_DMG ] && IPHONE_SDK_DMG="${FILES_DIR}/${IPHONE_SDK}"
 
 # URLS
-DMG2IMG="http://vu1tur.eu.org/tools/download.pl?dmg2img-1.3.tar.gz"
-IPHONEWIKI_KEY_URL="http://www.theiphonewiki.com/wiki/index.php?title=VFDecrypt_Keys"
+DMG2IMG="http://vu1tur.eu.org/tools/download.pl?dmg2img-1.6.1.tar.gz"
+IPHONEWIKI_KEY_URL="http://www.theiphonewiki.com/wiki/index.php?title=VFDecrypt_Keys:_3.x"
 AID_LOGIN="https://daw.apple.com/cgi-bin/WebObjects/DSAuthWeb.woa/wa/login?appIdKey=D236F0C410E985A7BB866A960326865E7F924EB042FA9A161F6A628F0291F620&path=/darwinsource/tarballs/apsl/cctools-667.8.0.tar.gz"
 DARWIN_SOURCES_DIR="$FILES_DIR/darwin_sources"
 
@@ -184,7 +185,8 @@ mount_dmg() {
 		${TOOLS_DIR}/dmg2img -v -i $DMG -o $TMP_IMG
 		echo "In order to extract `basename $1`, I am going to mount it."
 		echo "This needs to be done as root."
-		sudo mount -o loop $TMP_IMG $2
+		# This is needed for 3.0 sdk and dmg2img 1.6.1
+		sudo mount -t hfsplus  -o loop,offset=36864 $TMP_IMG $2
 	fi
 	if [ ! $? == 0 ]; then
 		error "Failed to mount `basename $1`."
@@ -237,167 +239,171 @@ build_tools() {
 	mkdir -p $TOOLS_DIR
 	mkdir -p $TMP_DIR
 
-	message_status "Retrieving and building dmg2img 1.3..."
+	message_status "Retrieving and building dmg2img 1.6.1 ..."
 
 	cd $TMP_DIR
 	if ! wget -O - $DMG2IMG | tar -zx; then
-		error "Failed to get and extract dmg2img-1.3. Check errors."
+		error "Failed to get and extract dmg2img-1.6.1 Check errors."
 		exit 1
 	fi
-    
-	pushd dmg2img-1.3
-    
+
+	pushd dmg2img-1.6.1
+
 	if ! make; then
-		error "Failed to make dmg2img-1.3."
+		error "Failed to make dmg2img-1.6.1"
 		error "Make sure you have libbz2 and libssl available on your system."
 		exit 1
 	fi
-    
-    mv vfdecrypt dmg2img $TOOLS_DIR
-    popd
-    rm -Rf dmg2img-1.3
-    
-    message_status "dmg2img is ready!"
+
+	mv vfdecrypt dmg2img $TOOLS_DIR
+	popd
+	rm -Rf dmg2img-1.6.1
+
+	message_status "dmg2img is ready!"
 }
 
 toolchain_extract_headers() {
-    build_tools
-    mkdir -p ${MNT_DIR} ${SDKS_DIR} ${TMP_DIR}
-    
-    # Make sure we don't already have these
-    if [ -d "${SDKS_DIR}/iPhoneOS${TOOLCHAIN_VERSION}.sdk" ] && [ -d "${SDKS_DIR}/MacOSX10.5.sdk" ]; then
-    	echo "SDKs seem to already be extracted."
-    	return
-    fi
+	build_tools
+	mkdir -p ${MNT_DIR} ${SDKS_DIR} ${TMP_DIR}
 
-    # Look for the DMG and ask the user if is isn't findable.
-    if ! [ -r $IPHONE_SDK_DMG ] ; then
-    	echo "I'm having trouble finding the iPhone SDK. I looked here:"
-    	echo $IPHONE_SDK_DMG
-    	if ! confirm "Do you have the SDK?"; then
-    		error "You will need to download the SDK before you can build the toolchain. The"
-    		error "required file can be obtained from: http://developer.apple.com/iphone/"
-    		exit 1
-    	fi
-    	echo "Please enter the full path to the dmg containing the SDK:"
-    	read IPHONE_SDK_DMG
-    	if [ ! -r $IPHONE_SDK_DMG ] ; then
-    		error "Sorry, I can't find the file!"
-    		error "You will need to download the SDK before you can build the toolchain. The"
-    		error "required file can be obtained from: http://developer.apple.com/iphone/"
-    		exit 1
-    	fi
-    fi
+	# Make sure we don't already have these
+	if [ -d "${SDKS_DIR}/iPhoneOS${TOOLCHAIN_VERSION}.sdk" ] && [ -d "${SDKS_DIR}/MacOSX10.5.sdk" ]; then
+		echo "SDKs seem to already be extracted."
+		return
+	fi
 
-    # Inform the user why we suddenly need their password
-    message_status "Trying to mount the iPhone SDK dmg..."
-    mount_dmg $IPHONE_SDK_DMG $MNT_DIR
+	# Look for the DMG and ask the user if is isn't findable.
+	if ! [ -r $IPHONE_SDK_DMG ] ; then
+		echo "I'm having trouble finding the iPhone SDK. I looked here:"
+		echo $IPHONE_SDK_DMG
+		if ! confirm "Do you have the SDK?"; then
+			error "You will need to download the SDK before you can build the toolchain. The"
+			error "required file can be obtained from: http://developer.apple.com/iphone/"
+			exit 1
+		fi
+		echo "Please enter the full path to the dmg containing the SDK:"
+		read IPHONE_SDK_DMG
+		if [ ! -r $IPHONE_SDK_DMG ] ; then
+			error "Sorry, I can't find the file!"
+			error "You will need to download the SDK before you can build the toolchain. The"
+			error "required file can be obtained from: http://developer.apple.com/iphone/"
+			exit 1
+		fi
+	fi
 
-    # Check the version of the SDK
-    # Apple seems to apply a policy of rounding off the last component of the long version number
-    # so we'll do the same here
-    SDK_VERSION=$(plist_key CFBundleShortVersionString "/" "${MNT_DIR}/iPhone SDK.mpkg/Contents/version.plist" | awk '
-    	BEGIN { FS="." }
-   	{
-    		if(substr($4,1,1) >= 5)
-    			$3++
-    		if($3 > 0)	printf "%s.%s.%s", $1, $2, $3
-    		else		printf "%s.%s", $1, $2
-    	}')
-    echo "SDK is version ${SDK_VERSION}"
-    
-    if [ "`vercmp $SDK_VERSION $TOOLCHAIN_VERSION`" == "older" ]; then
-    	error "We are trying to build toolchain ${TOOLCHAIN_VERSION} but this"
-    	error "SDK is ${SDK_VERSION}. Please download the latest SDK here:"
-    	error "http://developer.apple.com/iphone/"
-    	echo "Unmounting..."
-    	umount_dmg
-    	exit 1
-    fi
-    
-    if [[ "`vercmp $SDK_VERSION $TOOLCHAIN_VERSION`" == "newer" ]]; then
-    	PACKAGE="iPhoneSDK`echo $TOOLCHAIN_VERSION | sed 's/\./_/g' `.pkg"
-    else
-    	PACKAGE="iPhoneSDKHeadersAndLibs.pkg"
-    fi
+	# Inform the user why we suddenly need their password
+	message_status "Trying to mount the iPhone SDK dmg..."
+	mount_dmg $IPHONE_SDK_DMG $MNT_DIR
 
-    if [ ! -r ${MNT_DIR}/Packages/$PACKAGE ]; then
-    	error "I tried to extract $PACKAGE but I couldn't find it!"
-    	echo "Unmounting..."
-    	umount_dmg
-    	exit 1
-    fi
-    
-    message_status "Extracting `basename $PACKAGE`..."
+	# Check the version of the SDK
+	# Apple seems to apply a policy of rounding off the last component of the long version number
+	# so we'll do the same here
+	SDK_VERSION=$(plist_key CFBundleShortVersionString "/" "${MNT_DIR}/iPhone SDK.mpkg/Contents/version.plist" | awk '
+		BEGIN { FS="." }
+		{
+			if(substr($4,1,1) >= 5)
+				$3++
+			if($3 > 0)	printf "%s.%s.%s", $1, $2, $3
+			else		printf "%s.%s", $1, $2
+		}')
+	echo "SDK is version ${SDK_VERSION}"
 
-    rm -fR $TMP_DIR/*
+	if [ "`vercmp $SDK_VERSION $TOOLCHAIN_VERSION`" == "older" ]; then
+		error "We are trying to build toolchain ${TOOLCHAIN_VERSION} but this"
+		error "SDK is ${SDK_VERSION}. Please download the latest SDK here:"
+		error "http://developer.apple.com/iphone/"
+		echo "Unmounting..."
+		umount_dmg
+		exit 1
+	fi
 
-    cp ${MNT_DIR}/Packages/$PACKAGE $TMP_DIR/iphone.pkg
-    cd $TMP_DIR
-    xar -xf iphone.pkg Payload
-    # zcat on OSX needs .Z suffix
-    cat Payload | zcat | cpio -id
-    
-    # These folders are version named so the SDK version can be verified
-    if [ ! -d Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ]; then
-    	error "I couldn't find the folder iPhoneOS${TOOLCHAIN_VERSION}.sdk. Perhaps this is"
-    	error "not the right SDK dmg for toolchain ${TOOLCHAIN_VERSION}."
-    	exit 1
-    fi
-    
-    mv -f Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ${SDKS_DIR}
+	# Check which PACKAGE we have to extract. Apple does have different
+	# namings for it, depending on the SDK version. 
+	if [ "${TOOLCHAIN_VERSION}" == "3.0" ] ; then
+		PACKAGE="iPhoneSDKHeadersAndLibs.pkg"
+	elif [[ "`vercmp $SDK_VERSION $TOOLCHAIN_VERSION`" == "newer" ]]; then
+		PACKAGE="iPhoneSDK`echo $TOOLCHAIN_VERSION | sed 's/\./_/g' `.pkg"
+	else
+		PACKAGE="iPhoneSDKHeadersAndLibs.pkg"
+	fi
 
-    rm -fR $TMP_DIR/*
+	if [ ! -r ${MNT_DIR}/Packages/$PACKAGE ]; then
+		error "I tried to extract $PACKAGE but I couldn't find it!"
+		echo "Unmounting..."
+		umount_dmg
+		exit 1
+	fi
 
-    message_status "Extracting MacOSX10.5.pkg..."
+	message_status "Extracting `basename $PACKAGE`..."
 
-    cp ${MNT_DIR}/Packages/MacOSX10.5.pkg $TMP_DIR/macosx.pkg
-    cd $TMP_DIR 
-    xar -xf macosx.pkg Payload
-    cat Payload | zcat | cpio -id
-    mv -f SDKs/MacOSX10.5.sdk ${SDKS_DIR}
+	rm -fR $TMP_DIR/*
 
-    rm -fR $TMP_DIR/*
+	cp ${MNT_DIR}/Packages/$PACKAGE $TMP_DIR/iphone.pkg
+	cd $TMP_DIR
+	xar -xf iphone.pkg Payload
+	# zcat on OSX needs .Z suffix
+	cat Payload | zcat | cpio -id
 
-    message_status "Unmounting iPhone SDK img..."
-    cd $HERE
-    umount_dmg
+	# These folders are version named so the SDK version can be verified
+	if [ ! -d Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ]; then
+		error "I couldn't find the folder iPhoneOS${TOOLCHAIN_VERSION}.sdk. Perhaps this is"
+		error "not the right SDK dmg for toolchain ${TOOLCHAIN_VERSION}."
+		exit 1
+	fi
+
+	mv -f Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${TOOLCHAIN_VERSION}.sdk ${SDKS_DIR}
+
+	rm -fR $TMP_DIR/*
+
+	message_status "Extracting MacOSX10.5.pkg..."
+
+	cp ${MNT_DIR}/Packages/MacOSX10.5.pkg $TMP_DIR/macosx.pkg
+	cd $TMP_DIR 
+	xar -xf macosx.pkg Payload
+	cat Payload | zcat | cpio -id
+	mv -f SDKs/MacOSX10.5.sdk ${SDKS_DIR}
+
+	rm -fR $TMP_DIR/*
+
+	message_status "Unmounting iPhone SDK img..."
+	cd $HERE
+	umount_dmg
 }
 
 toolchain_extract_firmware() {
-   build_tools
-   mkdir -p $FW_DIR $MNT_DIR $TMP_DIR
+	build_tools
+	mkdir -p $FW_DIR $MNT_DIR $TMP_DIR
 
-    if [ -z "$FW_FILE" ]; then
-    	FW_FILE=`ls ${FW_DIR}/*${TOOLCHAIN_VERSION}*.ipsw 2>/dev/null`
-    	if [ ! $? ] && [[ `echo ${FW_FILE} | wc -w` > 1 ]]; then
-    		error "I attempted to search for the correct firmware version, but"
-    		error "it looks like you have several ipsw files. Please specify"
-    		error "one like so:"
+	if [ -z "$FW_FILE" ]; then
+		FW_FILE=`ls ${FW_DIR}/*${TOOLCHAIN_VERSION}*.ipsw 2>/dev/null`
+		if [ ! $? ] && [[ `echo ${FW_FILE} | wc -w` > 1 ]]; then
+			error "I attempted to search for the correct firmware version, but"
+			error "it looks like you have several ipsw files. Please specify"
+			error "one like so:"
 			echo -e "\texport FW_FILE=/path/to/firmware/"
-    		echo -e "\t./toolchain.sh firmware"
-    		exit 1
+			echo -e "\t./toolchain.sh firmware"
+			exit 1
 		fi
-    fi
-    
-    # If we can't find the firmware file we try to download it from the
-    # apple download urls above.
-    if [ ! -r "$FW_FILE" ] ; then
-    	echo "I can't find the firmware image for iPhone/iPod Touch $TOOLCHAIN_VERSION."
-    	if ! confirm -N "Do you have it?"; then
-	    	if confirm "Do you want me to download it?"; then
+	fi
+
+	# If we can't find the firmware file we try to download it from the
+	# apple download urls above.
+	if [ ! -r "$FW_FILE" ] ; then
+		echo "I can't find the firmware image for iPhone/iPod Touch $TOOLCHAIN_VERSION."
+		if ! confirm -N "Do you have it?"; then
+			if confirm "Do you want me to download it?"; then
 				APPLE_DL_URL=$(cat ${HERE}/firmware.list | awk '$1 ~ /'"^${TOOLCHAIN_VERSION}$"'/ && $2 ~ /^iPhone\(3G\)$/ { print $3; }')
 				FW_FILE=`basename "${APPLE_DL_URL}"`
 				if [ ! $APPLE_DL_URL ] ; then
-				    error "Can't find a download url for the toolchain version and platform specified."
-				    error "You may have to download it manually.".
-				    exit 1
+					error "Can't find a download url for the toolchain version and platform specified."
+					error "You may have to download it manually.".
+					exit 1
 				else 
-				    message_status "Downloading: $FW_FILE"
-				    cd $TMP_DIR
-				    wget -nc -c $APPLE_DL_URL
-				    mv $FW_FILE $FW_DIR
-				    FW_FILE=$FW_DIR/$FW_FILE
+					message_status "Downloading: $FW_FILE"
+					cd $TMP_DIR
+					wget -nc -c $APPLE_DL_URL
+					mv $FW_FILE $FW_DIR
+					FW_FILE=$FW_DIR/$FW_FILE
 				fi
 			fi
 		else
@@ -407,135 +413,123 @@ toolchain_extract_firmware() {
 			done
 		fi
 	fi
-    
-    cd "$FW_DIR"
-    unzip -d "${TMP_DIR}" -o "${FW_FILE}" Restore.plist
 
-    # Retrieve information from the firmware image we downloaded so we know
-    # which file to decrypt and which key to use to decrypt it
-    FW_DEVICE_CLASS=$(plist_key DeviceClass "/" "${TMP_DIR}/Restore.plist")
-    FW_PRODUCT_VERSION=$(plist_key ProductVersion "/" "${TMP_DIR}/Restore.plist")
-    FW_BUILD_VERSION=$(plist_key ProductBuildVersion "/" "${TMP_DIR}/Restore.plist")
-    FW_RESTORE_RAMDISK=$(plist_key User "/RestoreRamDisks/" "${TMP_DIR}/Restore.plist")
-    FW_RESTORE_SYSTEMDISK=$(plist_key User "/SystemRestoreImages/" "${TMP_DIR}/Restore.plist")
-    FW_VERSION_DIR="${FW_DIR}/${FW_PRODUCT_VERSION}_${FW_BUILD_VERSION}"
-    
-    cecho bold "Firmware Details"
-    echo "Device Class: ${FW_DEVICE_CLASS}"
-    echo "Product Version: ${FW_PRODUCT_VERSION}"
-    echo "Build Version: ${FW_BUILD_VERSION}"
-    echo "Restore RamDisk: ${FW_RESTORE_RAMDISK}"
-    echo "Restore Image: ${FW_RESTORE_SYSTEMDISK}"
-    
-    if [[ $FW_PRODUCT_VERSION != $TOOLCHAIN_VERSION ]]; then
-    	error "The firmware image is for ${FW_DEVICE_CLASS} version ${FW_PRODUCT_VERSION}, but we are"
-    	error "building toolchain version ${TOOLCHAIN_VERSION}. These may be incompatible."
-    	if ! confirm "Proceed?"; then
-    		error "Firmware extraction will not proceed."
-    		exit 1
-    	fi
-    fi
-    
-    message_status "Unzipping `basename $FW_RESTORE_SYSTEMDISK`..."
-    unzip -d "${TMP_DIR}" -o "${FW_FILE}" "${FW_RESTORE_SYSTEMDISK}"
+	cd "$FW_DIR"
 
-    if [ -z "$DECRYPTION_KEY_SYSTEM" ] ; then
-        echo "We need the decryption key for `basename $FW_RESTORE_SYSTEMDISK`."
-        echo "I'm going to try to fetch it from $IPHONEWIKI_KEY_URL...."
-        DECRYPTION_KEY_SYSTEM=$( wget --quiet -O - $IPHONEWIKI_KEY_URL | awk 'BEGIN { IGNORECASE = 1; }
-            /name=\"'"${FW_PRODUCT_VERSION}"'.*'"${FW_BUILD_VERSION}"'/ { found = 1; }
-            /<p>.*$/ && found { sub(/.*<p>/, "", $0); print toupper($0); exit; }' )
-        if [ ! "$DECRYPTION_KEY_SYSTEM" ] ; then
-            error "Sorry, no decryption key for system partition found!"
-            exit 1
-        fi
-        echo "I found it!"
-    fi
+	# Sometimes the firmware download is broken. Had this problem while
+	# automatically download the firmware with wget above. Is it a problem
+	# of wget or does apple have any checks? Maybe we should use wget
+	# with an alternative user agent
+
+	sha1cmd=`which sha1sum`
+	if [ "x$sha1cmd" != "x" ] ; then
+		ff=`basename ${FW_FILE}`
+		should=$(cat ${HERE}/firmware.list | \
+			awk '$1 ~ /'"^${TOOLCHAIN_VERSION}$"'/ && $3 ~ /'"${ff}"'/ { print $4; }')
+		sha1=$(sha1sum ${FW_FILE} | awk ' { print $1; exit; }')
+		if [ "x$should" != "x" -a "x$should" != "x" ] ; then
+			if [ "$sha1" == "$should" ] ; then 
+				cecho green "Checksum of firmware file is valid."
+			else
+				cecho red "The calculated checksum of the firmware differs "
+				cecho red "from the original one. One day I had a problem "
+				cecho red "to download a firmware with wget. The file was "
+				cecho red "broken. After trying the same download with "
+				cecho red "firefox I got a valid firmware file."
+				cecho red "If you encounter some problems while extracting "
+				cecho red "the firmware please download the file with another "
+				cecho red "user agent"
+			fi
+		fi
+	fi
+
+	unzip -d "${TMP_DIR}" -o "${FW_FILE}" Restore.plist
+
+	# Retrieve information from the firmware image we downloaded so we know
+	# which file to decrypt and which key to use to decrypt it
+	FW_DEVICE_CLASS=$(plist_key DeviceClass "/" "${TMP_DIR}/Restore.plist")
+	FW_PRODUCT_VERSION=$(plist_key ProductVersion "/" "${TMP_DIR}/Restore.plist")
+	FW_BUILD_VERSION=$(plist_key ProductBuildVersion "/" "${TMP_DIR}/Restore.plist")
+	FW_RESTORE_RAMDISK=$(plist_key User "/RestoreRamDisks/" "${TMP_DIR}/Restore.plist")
+	FW_RESTORE_SYSTEMDISK=$(plist_key User "/SystemRestoreImages/" "${TMP_DIR}/Restore.plist")
+	FW_VERSION_DIR="${FW_DIR}/${FW_PRODUCT_VERSION}_${FW_BUILD_VERSION}"
+	HW_BOARD_CONFIG=$(plist_key BoardConfig "/DeviceMap/" "${TMP_DIR}/Restore.plist")
+
+	cecho bold "Firmware Details"
+	echo "Device Class: ${FW_DEVICE_CLASS}"
+	echo "Product Version: ${FW_PRODUCT_VERSION}"
+	echo "Build Version: ${FW_BUILD_VERSION}"
+	echo "Restore RamDisk: ${FW_RESTORE_RAMDISK}"
+	echo "Restore Image: ${FW_RESTORE_SYSTEMDISK}"
+	echo "Board Config: ${HW_BOARD_CONFIG}"
+
+	if [[ $FW_PRODUCT_VERSION != $TOOLCHAIN_VERSION ]]; then
+		error "The firmware image is for ${FW_DEVICE_CLASS} version ${FW_PRODUCT_VERSION}, but we are"
+		error "building toolchain version ${TOOLCHAIN_VERSION}. These may be incompatible."
+		if ! confirm "Proceed?"; then
+			error "Firmware extraction will not proceed."
+			exit 1
+		fi
+	fi
+
+	message_status "Unzipping `basename $FW_RESTORE_SYSTEMDISK`..."
+	unzip -d "${TMP_DIR}" -o "${FW_FILE}" "${FW_RESTORE_SYSTEMDISK}"
+
+	if [ -z "$DECRYPTION_KEY_SYSTEM" ] ; then
+		echo "We need the decryption key for `basename $FW_RESTORE_SYSTEMDISK`."
+		echo "I'm going to try to fetch it from $IPHONEWIKI_KEY_URL...."
+ 
+		DECRYPTION_KEY_SYSTEM=$( wget --quiet -O - $IPHONEWIKI_KEY_URL | awk '\
+			BEGIN { IGNORECASE = 1; }
+			/name="3.0_.28Build_7A341.29"/               { found_3_0 = 1;   }
+			/name="Root_Filesystem"/ && found_3_0        { found_root = 1;  }
+			/title="'${HW_BOARD_CONFIG}'"/ && found_root { found_phone = 1; }
+			/.*<pre>.*$/ && found_phone { 
+				sub(/.*<pre>/,"", $0); 
+				print toupper($0); exit; }
+		')
+
+		if [ ! "$DECRYPTION_KEY_SYSTEM" ] ; then
+			error "Sorry, no decryption key for system partition found!"
+			exit 1
+		fi
+		echo "I found it!"
+	fi
 
 	message_status "Mounting ${FW_RESTORE_SYSTEMDISK}..."
 	mount_dmg "${TMP_DIR}/${FW_RESTORE_SYSTEMDISK}" "${MNT_DIR}" "${DECRYPTION_KEY_SYSTEM}"
 
-    cd "${MNT_DIR}"
-    message_status "Copying required components of the firmware..."
+	cd "${MNT_DIR}"
+	message_status "Copying required components of the firmware..."
 
-    mkdir -p "${FW_VERSION_DIR}"
-    sudo cp -R -p * "${FW_VERSION_DIR}"
-    sudo chown -R `id -u`:`id -g` $FW_VERSION_DIR
-    message_status "Unmounting..."
+	mkdir -p "${FW_VERSION_DIR}"
+	sudo cp -R -p * "${FW_VERSION_DIR}"
+	sudo chown -R `id -u`:`id -g` $FW_VERSION_DIR
+	message_status "Unmounting..."
 
-    cd "${HERE}"
-    umount_dmg
-    
-    if [ -s "${FW_DIR}/current" ] ; then
-        rm "${FW_DIR}/current"
-    fi
+	cd "${HERE}"
+	umount_dmg
 
-    ln -s "${FW_VERSION_DIR}" "${FW_DIR}/current"
-    rm "${TMP_DIR}/$FW_RESTORE_SYSTEMDISK" "${TMP_DIR}/${FW_RESTORE_SYSTEMDISK}.decrypted" $FW_SYSTEM_DMG "${TMP_DIR}/Restore.plist"
+	if [ -s "${FW_DIR}/current" ] ; then
+		rm "${FW_DIR}/current"
+	fi
+
+	ln -s "${FW_VERSION_DIR}" "${FW_DIR}/current"
+	rm "${TMP_DIR}/$FW_RESTORE_SYSTEMDISK" "${TMP_DIR}/${FW_RESTORE_SYSTEMDISK}.decrypted" $FW_SYSTEM_DMG "${TMP_DIR}/Restore.plist"
 }
 
+# thanks to no.name.11234 for the tip to download the darwin sources
+# from http://www.opensource.apple.com/tarballs
 toolchain_download_darwin_sources() {
 	mkdir -p $DARWIN_SOURCES_DIR && cd $DARWIN_SOURCES_DIR
-
-	message_status "Trying to log you in to the Darwin sources repository..."
-	# Extract an auto-generated session key to make nice with Apple's login script
-	echo -n "Getting session key..."
-	LOGIN_URL=$(wget --no-check-certificate --quiet -O - $AID_LOGIN | awk '{
-		if(match($0,/\/cgi-bin\/WebObjects\/DSAuthWeb\.woa\/[0-9]+\/wo\/[a-zA-Z0-9]*?\/[^"]*/))
-			print substr($0, RSTART, RLENGTH);
-	}')
-
-	if [ -z "$LOGIN_URL" ]; then
-		error "Oh dear, I can't seem to log you in! There was a problem"
-		error "retrieving the login form session ID. Apple probably"
-		error "changed something on their site."
-		error "Installation of the toolchain cannot proceed."
-		exit 1
-	fi
-
-	# Attempt to login
-	echo -e "Got the session key."
-	echo -ne "Logging in..."
-	LOGIN_ERROR=$(wget --quiet --save-cookies=cookies.tmp --keep-session-cookies \
-			--post-data="theAccountName=${APPLE_ID}&theAccountPW=${APPLE_PASSWORD}&1.Continue.x=1&1.Continue.y=1&theAuxValue=" \
-			--no-check-certificate -O - "https://daw.apple.com${LOGIN_URL}" | awk '{
-		if(match($0, /<FONT COLOR="#ff0000" SIZE=1>([^<]*)<\/FONT>/)) {
-			$0 = substr($0, RSTART, RLENGTH);
-			sub(/<\/?FONT.*>/, "", $0);
-			print $0;
-		}
-	}')
-
-	if [ "$LOGIN_ERROR" != "" ]; then
-		error "Error!"
-		error "Oh dear, I can't seem to log you in! Apple's login server told me:"
-		error "\"${LOGIN_ERROR}\""
-		error "Installation of toolchain cannot proceed."
-		exit
-	fi
-
-	echo "Login successful."
-
-	# Need to accept the license agreement
-	echo "In order to download these Apple OSS components, you must read"
-	echo "and accept the APSL agreement, found here:"
-	echo "http://www.opensource.apple.com/apsl/"	
-	if ! confirm "Have you read and accepted the APSL agreement?"; then
-		error "You must accept the agreement in order to proceed."
-		exit 1
-	fi
-	
-	echo "Accepting APSL agreement on your behalf..."
-	wget --quiet --load-cookies=cookies.tmp \
-		--keep-session-cookies --post-data="APSLrev=2.0&querystr=&acceptBtn=Yes%2C+I+Accept" \
-		-O - "http://www.opensource.apple.com/cgi-bin/apslreg.cgi" &> /dev/null
 
 	# Get what we're here for
 	message_status "Attempting to download tool sources..."
 	wget --no-clobber --keep-session-cookies --load-cookies=cookies.tmp --input-file=${HERE}/darwin-tools.list
 	message_status "Finished downloading!"
-
-	rm cookies.tmp
+	if [ -f cookies.tmp ] ; then
+		rm cookies.tmp
+	fi
 }
 
 # Follows the build routine for the toolchain described by saurik here:
@@ -577,11 +571,10 @@ toolchain_build() {
 		error "I couldn't find an iPhone filesystem at: ${FW_DIR}/current"
 		exit 1
 	fi
-    
 
 	if [ -d $TOOLCHAIN/sys ] && [[ `ls -A $TOOLCHAIN/sys | wc -w` > 0 ]]; then
 		echo "It looks like the iPhone filesystem has already been copied."
-		if confirm -N "Copy again?"; then
+		if ! confirm -N "Copy again?"; then
 			message_status "Copying required iPhone filesystem components..."
 			# I have tried to avoid copying the permissions (not using -a) because they
 			# get in the way later down the track. This might be wrong but it seems okay.
@@ -659,7 +652,7 @@ toolchain_build() {
 		mkdir -p IOKit/"${proj}"
 		cp -R -p "${DARWIN_SOURCES_DIR}"/IOKitUser-*/"${proj}".subproj/*.h IOKit/"${proj}"
 	done
-    
+
 	ln -s IOKit/kext/bootfiles.h .
 
 	mkdir -p IOKit/storage
@@ -678,9 +671,6 @@ toolchain_build() {
 	echo "configd"
 	cp -R -p "${DARWIN_SOURCES_DIR}"/configd-*/SystemConfiguration.fproj/*.h SystemConfiguration
 
-	mkdir -p WebCore
-	cp -R -p  "${DARWIN_SOURCES_DIR}"/WebCore-*/bindings/objc/*.h WebCore
-
 	echo "CoreFoundation"
 	mkdir CoreFoundation
 	cp -R -p "${LEOPARD_SDK_LIBS}"/CoreFoundation.framework/Versions/A/Headers/* CoreFoundation
@@ -694,7 +684,7 @@ toolchain_build() {
 		cp -R -pf "${IPHONE_SDK_LIBS}"/"${framework}".framework/Headers/* "${framework}"
 	done
 
-	for framework in UIKit AddressBook CoreLocation; do
+	for framework in UIKit AddressBook CoreLocation OpenGLES; do
 		echo $framework
 		mkdir -p $framework
 		cp -R -pf "${IPHONE_SDK_LIBS}"/"${framework}".framework/Headers/* "${framework}"
@@ -722,12 +712,13 @@ toolchain_build() {
 		mkdir -p "$(basename $service .framework)"
 		cp -R -p $service/Versions/A/Headers/* "$(basename $service .framework)"
 	done
+
 	mkdir WebCore
 	echo "WebCore"
 	cp -R -p "${DARWIN_SOURCES_DIR}"/WebCore-*/bindings/objc/*.h WebCore
 	cp -R -p "${DARWIN_SOURCES_DIR}"/WebCore-*/bridge/mac/*.h WebCore 
 	for subdir in css dom editing history html loader page platform{,/{graphics,text}} rendering; do
-	    cp -R -p "${DARWIN_SOURCES_DIR}"/WebCore-*/"${subdir}"/*.h WebCore
+		cp -R -p "${DARWIN_SOURCES_DIR}"/WebCore-*/"${subdir}"/*.h WebCore
 	done
 
 	cp -R -p "${DARWIN_SOURCES_DIR}"/WebCore-*/css/CSSPropertyNames.in WebCore
@@ -747,7 +738,7 @@ toolchain_build() {
 	cd "$TOOLCHAIN/sys"
 	ln -sf gcc/darwin/4.0/stdint.h usr/include
 	ln -sf libstdc++.6.dylib usr/lib/libstdc++.dylib
-    
+
 	message_status "Applying patches..."
 
 	if [ ! -r "${HERE}/include.diff" ]; then
@@ -755,19 +746,27 @@ toolchain_build() {
 		exit 1
 	fi
 
-	# this step may have a bad hunk in CoreFoundation and thread_status while patching
-	# these errors are to be ignored, as these are changes for issues Apple has now fixed
-	# include.diff is a modified version the telesphoreo patches to support iPhone 2.2 SDK.
-        pushd "usr/include"
-	patch -p3 -N < "${HERE}/include.diff"
-	svn cat http://svn.telesphoreo.org/trunk/tool/patches/locks.h@530 > arm/locks.h
-        popd
+	# include.diff is a modified version the telesphoreo patches to support iPhone 3.0
+	# Some patches could fail if you rerun (rebuild) ./toolchain.sh build
+
+	#wget -qO- http://svn.telesphoreo.org/trunk/tool/include.diff | patch -p3 
+	pushd "usr/include"
+	patch -p3 -l -N < "${HERE}/include.diff"
+
+	#wget -qO arm/locks.h http://svn.telesphoreo.org/trunk/tool/patches/locks.h 
+	svn cat http://svn.telesphoreo.org/trunk/tool/patches/locks.h@679 > arm/locks.h
+
+	popd
+
+	mkdir GraphicsServices
+	cd GraphicsServices
+	wget -q http://svn.telesphoreo.org/trunk/tool/patches/GraphicsServices.h 
 
 	# Changed some of the below commands from sudo; don't know why they were like that
 	message_status "Checking out iphone-dev repo..."
 	mkdir -p "${CSU_DIR}"
 	cd "${CSU_DIR}"
-	svn co -r 280 http://iphone-dev.googlecode.com/svn/trunk/csu .
+	svn co http://iphone-dev.googlecode.com/svn/trunk/csu .
 	cp -R -p *.o "$TOOLCHAIN/sys/usr/lib"
 	cd "$TOOLCHAIN/sys/usr/lib"
 	chmod 644 *.o
@@ -780,32 +779,47 @@ toolchain_build() {
 		pushd "${GCC_DIR}" && git checkout b3dd8400196ccb63fbf10fe036f9f8725b2f0a39 && popd
 	else
 		pushd "${GCC_DIR}"
+		git pull 
+		# mg; after success nail to a running version
 		if ! git pull git://git.saurik.com/llvm-gcc-4.2 || ! git checkout b3dd8400196ccb63fbf10fe036f9f8725b2f0a39; then
 			error "Failed to checkout saurik's llvm-gcc-4.2."
 			exit 1
 		fi
 		popd
 	fi
-    
+
 	message_status "Checking out odcctools..."
 	mkdir -p "${CCTOOLS_DIR}"
-	svn co -r280 http://iphone-dev.googlecode.com/svn/branches/odcctools-9.2-ld "${CCTOOLS_DIR}"
+
+	# ATTENTION: need to install ia32-libs, multilibs
+	svn co -r287 http://iphone-dev.googlecode.com/svn/branches/odcctools-9.2-ld "${CCTOOLS_DIR}"
+
+	# patch rc/cctools/ld64/src/Options.h (#include <cstring> #include <limits.h>)
+	cd "${CCTOOLS_DIR}"
+	patch -p0 < "$IPHONEDEV_DIR/ld64_options.patch"
 
 	message_status "Configuring cctools-iphone..."
 	mkdir -p "$TOOLCHAIN/pre"
 	mkdir -p "$TOOLCHAIN/bld/cctools-iphone"
 	cd "$TOOLCHAIN/bld/cctools-iphone"
+
 	CFLAGS="-m32" LDFLAGS="-m32" "${CCTOOLS_DIR}"/configure \
 		--target="${TARGET}" \
 		--prefix="$TOOLCHAIN/pre" \
-		--disable-ld64
+		--enable-ld64
+
 	make clean > /dev/null
+
 	message_status "Building cctools-iphone..."
 	cecho bold "Build progress logged to: toolchain/bld/cctools-iphone/make.log"
 	if ! ( make &>make.log && make install &>install.log ); then
 		error "Build & install failed. Check make.log and install.log"
 		exit 1
 	fi
+
+	# default linker is now ld64
+	mv "${TOOLCHAIN}/pre/bin/arm-apple-darwin9-ld" "${TOOLCHAIN}/pre/bin/arm-apple-darwin9-ld_classic"
+	ln -s "${TOOLCHAIN}/pre/bin/arm-apple-darwin9-ld64" "${TOOLCHAIN}/pre/bin/arm-apple-darwin9-ld"
 
 	message_status "Configuring gcc-4.2-iphone..."
 	mkdir -p "$TOOLCHAIN/bld/gcc-4.2-iphone"
@@ -818,7 +832,7 @@ toolchain_build() {
 		--with-as="$TOOLCHAIN"/pre/bin/"${TARGET}"-as \
 		--with-ld="$TOOLCHAIN"/pre/bin/"${TARGET}"-ld \
 		--enable-wchar_t=no \
-		--with-gxx-include-dir=/usr/include/c++/4.0.0
+		--with-gxx-include-dir=/usr/include/c++/4.2.1
 	make clean > /dev/null
 	message_status "Building gcc-4.2-iphone..."
 	cecho bold "Build progress logged to: toolchain/bld/gcc-4.2-iphone/make.log"
@@ -952,26 +966,11 @@ case $1 in
 		toolchain_extract_headers
 		message_action "Headers extracted."
 		;;
-	    
+
 	darwin_sources)
 		check_environment
-		# Make sure we have the Apple ID and password
-		if [ "$APPLE_ID" == "" ] || [ "$APPLE_PASSWORD" == "" ]; then
-			echo "You're going to need an Apple Developer Connection ID and password."
-			read -p "Apple ID: " APPLE_ID
-			read -s -p "Password: " APPLE_PASSWORD
-			echo
-		fi
-
-		if [ "$APPLE_ID" != "" ] && [ "$APPLE_PASSWORD" != "" ]; then
-			message_action "Downloading Darwin sources..."
-			echo "Apple ID: $APPLE_ID"
-			toolchain_download_darwin_sources
-			message_action "Darwin sources retrieved."
-		else
-			error "You must provide a valid Apple ID and password combination in order "
-			error "to automatically download the required Darwin sources."
-		fi
+		toolchain_download_darwin_sources
+		message_action "Darwin sources retrieved."
 		;;
 
 	firmware)
@@ -1025,32 +1024,32 @@ case $1 in
 		# Shows usage information to the user
 		BOLD=$(tput bold)
 		ENDF=$(tput sgr0)
-		echo    "toolchain.sh <action>"
+		echo	"toolchain.sh <action>"
 		echo
-		echo    "    ${BOLD}all${ENDF}"
+		echo	"    ${BOLD}all${ENDF}"
 		echo -e "    \tPerform all steps in order: headers, darwin_sources,"
 		echo -e "    \tfirmware, build and clean."
 		echo
-		echo    "    ${BOLD}headers${ENDF}"
+		echo	"    ${BOLD}headers${ENDF}"
 		echo -e "    \tExtract headers from an iPhone SDK dmg provided by"
 		echo -e "    \tthe user in <toolchain>/files/<sdk>.dmg."
 		echo
-		echo    "    ${BOLD}darwin_sources${ENDF}"
+		echo	"    ${BOLD}darwin_sources${ENDF}"
 		echo -e "    \tRetrieve required Apple OSS components using a valid"
 		echo -e "    \tApple ID and password."
 		echo
-		echo    "    ${BOLD}firmware${ENDF}"
+		echo	"    ${BOLD}firmware${ENDF}"
 		echo -e "    \tDownload (optional) and extract iPhone an firmware"
 		echo -e "    \timage for the specified toolchain version."
 		echo
-		echo    "    ${BOLD}build${ENDF}"
+		echo	"    ${BOLD}build${ENDF}"
 		echo -e "    \tAcquire and build the toolchain sources."
 		echo
-		echo    "    ${BOLD}classdump${ENDF}"
+		echo	"    ${BOLD}classdump${ENDF}"
 		echo -e "    \tGenerates Objective-C headers using public and private"
 		echo -e "    \tframeworks retrieved from an iPhone."
 		echo
-		echo    "    ${BOLD}clean${ENDF}"
+		echo	"    ${BOLD}clean${ENDF}"
 		echo -e "    \tRemove source files, extracted dmgs and ipsws and"
 		echo -e "    \ttemporary files, leaving only the compiled toolchain"
 		echo -e "    \tand headers."
