@@ -756,11 +756,12 @@ toolchain_build() {
 	#wget -qO arm/locks.h http://svn.telesphoreo.org/trunk/tool/patches/locks.h 
 	svn cat http://svn.telesphoreo.org/trunk/tool/patches/locks.h@679 > arm/locks.h
 
-	popd
 
 	mkdir GraphicsServices
 	cd GraphicsServices
-	wget -q http://svn.telesphoreo.org/trunk/tool/patches/GraphicsServices.h 
+	svn cat  http://svn.telesphoreo.org/trunk/tool/patches/GraphicsServices.h@357 > GraphicsServices.h
+
+	popd
 
 	# Changed some of the below commands from sudo; don't know why they were like that
 	message_status "Checking out iphone-dev repo..."
