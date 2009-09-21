@@ -27,9 +27,15 @@
 # What version of the toolchain are we building?
 TOOLCHAIN_VERSION="3.0"
 
-
 # Everything is built relative to IPHONEDEV_DIR
 IPHONEDEV_DIR="`pwd`"
+
+TOOLCHAIN="${IPHONEDEV_DIR}/toolchain"
+[ -z $BUILD_DIR ] && BUILD_DIR="${TOOLCHAIN}/bld"
+[ -z $PREFIX ] && PREFIX="${TOOLCHAIN}/pre"
+[ -z $SRC_DIR ] && SRC_DIR="${TOOLCHAIN}/src"
+[ -z $SYS_DIR ] && SYS_DIR="${TOOLCHAIN}/sys"
+
 
 # Usage
 # ======================
@@ -44,6 +50,31 @@ IPHONEDEV_DIR="`pwd`"
 #	OR simply run:
 #	./toolchain.sh all
 #
+# Following environment vars control the behaviour of this script:
+#
+# BUILD_DIR:
+#    Build the binaries (gcc, otool etc.) in this dir.
+#    Default: $TOOLCHAIN/bld
+#
+# PREFIX:
+#    Create the ./bin ./lib dir for the toolchain executables
+#    under the prefix.
+#    Default: $TOOLCHAIN/pre
+#
+# SRC_DIR:
+#    Store the sources (gcc etc.) in this dir. 
+#    Default: $TOOLCHAIN/src
+#
+# SYS_DIR:
+#    Put the toolchain sys files (the iphone root system) under this dir.
+#    Default: $TOOLCHAIN/sys
+#
+# example for these vars:
+#
+# BUILD_DIR="/tmp/bld" SRC_DIR="/tmp/src" PREFIX="/usr/local" ./toolchain.sh all
+#
+# Be warned: Use these vars carefully if you do a ./toolchain.sh rebuild. 
+#            BUILD_DIR and SYS_DIR are deleted then.
 #
 # Actions
 # ======================
@@ -72,10 +103,11 @@ IPHONEDEV_DIR="`pwd`"
 #   You may specify APPLE_ID and APPLE_PASSWORD environment variables to avoid
 #   prompting.
 #
-# ./toolchain.sh build
+# ./toolchain.sh build | rebuild
 #   Starts the build process decribed by saurik in
-#   http://www.saurik.com/id/4. This script uses the same paths under
-#   $IPHONEDEV_DIR/toolchain/
+#   http://www.saurik.com/id/4. 
+#   This script uses the paths $BUILD_DIR, $SRC_DIR, $PREFIX and $SYS_DIR.
+#   Theses path defaults to subpaths under $IPHONEDEV_DIR/toolchain/
 #
 # ./toolchain.sh classdump
 #   Runs classdump on a selected iPhone over SSH in order to generate useable
@@ -98,7 +130,7 @@ IPHONEWIKI_KEY_URL="http://www.theiphonewiki.com/wiki/index.php?title=VFDecrypt_
 AID_LOGIN="https://daw.apple.com/cgi-bin/WebObjects/DSAuthWeb.woa/wa/login?appIdKey=D236F0C410E985A7BB866A960326865E7F924EB042FA9A161F6A628F0291F620&path=/darwinsource/tarballs/apsl/cctools-667.8.0.tar.gz"
 DARWIN_SOURCES_DIR="$FILES_DIR/darwin_sources"
 
-NEEDED_COMMANDS="git gcc make sudo mount xar cpio zcat tar wget unzip gawk bison flex"
+NEEDED_COMMANDS="git gcc make sudo mount xar cpio zcat tar wget unzip gawk bison flex patch"
 
 HERE=`pwd`
 
@@ -374,6 +406,13 @@ toolchain_extract_firmware() {
 	build_tools
 	mkdir -p $FW_DIR $MNT_DIR $TMP_DIR
 
+	if [ -s "${FW_DIR}/current" ] && [[ `ls -A ${FW_DIR}/current | wc -w` > 0 ]]; then
+		echo "firmware seem to already be extracted."
+		if ! confirm -N "extract again?"; then
+			return
+		fi
+	fi
+
 	if [ -z "$FW_FILE" ]; then
 		FW_FILE=`ls ${FW_DIR}/*${TOOLCHAIN_VERSION}*.ipsw 2>/dev/null`
 		if [ ! $? ] && [[ `echo ${FW_FILE} | wc -w` > 1 ]]; then
@@ -521,6 +560,14 @@ toolchain_extract_firmware() {
 # thanks to no.name.11234 for the tip to download the darwin sources
 # from http://www.opensource.apple.com/tarballs
 toolchain_download_darwin_sources() {
+
+	if [ -r "${DARWIN_SOURCES_DIR}/xnu-1228.7.58.tar.gz" ] ; then
+		echo "Darwin sources seem to already be downloaded."
+		if ! confirm -N "Download again?"; then
+			return
+		fi
+	fi
+
 	mkdir -p $DARWIN_SOURCES_DIR && cd $DARWIN_SOURCES_DIR
 
 	# Get what we're here for
@@ -534,6 +581,7 @@ toolchain_download_darwin_sources() {
 
 # Follows the build routine for the toolchain described by saurik here:
 # www.saurik.com/id/4
+#
 toolchain_build() {
 
 	local TOOLCHAIN="${IPHONEDEV_DIR}/toolchain"
@@ -543,47 +591,57 @@ toolchain_build() {
 	local IPHONE_SDK="${SDKS_DIR}/iPhoneOS${TOOLCHAIN_VERSION}.sdk"
 	local IPHONE_SDK_INC="${IPHONE_SDK}/usr/include"
 	local IPHONE_SDK_LIBS="${IPHONE_SDK}/System/Library/Frameworks"
-	local CCTOOLS_DIR="$TOOLCHAIN/src/cctools"
-	local GCC_DIR="$TOOLCHAIN/src/gcc"
-	local CSU_DIR="$TOOLCHAIN/src/csu"
-	export PATH="$TOOLCHAIN/pre/bin":"${PATH}"
+	local CCTOOLS_DIR="$SRC_DIR/cctools"
+	local GCC_DIR="$SRC_DIR/gcc"
+	local CSU_DIR="$SRC_DIR/csu"
+	export PATH="$PREFIX/bin":"${PATH}"
 	local TARGET="arm-apple-darwin9"
 	[ ! "`vercmp $TOOLCHAIN_VERSION 2.0`" == "newer" ] && local TARGET="arm-apple-darwin8"
 
 	mkdir -p "${TOOLCHAIN}"
 
-	cd "${DARWIN_SOURCES_DIR}"
-	message_status "Finding and extracting archives..."
-	ARCHIVES=$(find ./* -name '*.tar.gz')
-	for a in $ARCHIVES; do
-		basename $a .tar.gz
-		tar --overwrite -xzof $a
-	done
+	extract_sources=1
+	if [ -d "${DARWIN_SOURCES_DIR}/xnu-1228.7.58" ] ; then
+		if ! confirm -N "extract darwin sources again?"; then
+			extract_sources=0
+		fi
+	fi
 
-	# Permissions are being extracted along with the gzipped files. I can't seem to get
-	# tar to ignore this, and they are constantly in the way so I'll use this hack.
-	chmod -R 755 *
+	if [ "x$extract_sources" == "x1" ]; then
+		cd "${DARWIN_SOURCES_DIR}"
+		message_status "Finding and extracting archives..."
+		ARCHIVES=$(find ./* -name '*.tar.gz')
+		for a in $ARCHIVES; do
+			basename $a .tar.gz
+			tar --overwrite -xzof $a
+		done
 
-	mkdir -p "$TOOLCHAIN/sys"
-	cd "$TOOLCHAIN/sys"
+		# Permissions are being extracted along with the gzipped 
+		# files. I can't seem to get tar to ignore this, and they
+		# are constantly in the way so I'll use this hack.
+		chmod -R 755 *
+	fi
+
+	mkdir -p "${SYS_DIR}"
+	cd "${SYS_DIR}"
 
 	if [ ! -d "${FW_DIR}/current" ] ; then
 		error "I couldn't find an iPhone filesystem at: ${FW_DIR}/current"
 		exit 1
 	fi
 
-	if [ -d $TOOLCHAIN/sys ] && [[ `ls -A $TOOLCHAIN/sys | wc -w` > 0 ]]; then
+	if [ -d $SYS_DIR ] && [[ `ls -A $SYS_DIR | wc -w` > 0 ]]; then
 		echo "It looks like the iPhone filesystem has already been copied."
-		if ! confirm -N "Copy again?"; then
+		if confirm -N "Copy again?"; then
 			message_status "Copying required iPhone filesystem components..."
 			# I have tried to avoid copying the permissions (not using -a) because they
 			# get in the way later down the track. This might be wrong but it seems okay.
-			cp -R -p ${FW_DIR}/current/* "$TOOLCHAIN/sys"
+			cp -R -p ${FW_DIR}/current/* "$SYS_DIR"
 			rm -rf usr/include
 		fi
 	else
 		message_status "Copying required iPhone filesystem components..."
-		cp -R -p ${FW_DIR}/current/* "$TOOLCHAIN/sys" # As above
+		cp -R -p ${FW_DIR}/current/* "$SYS_DIR" # As above
 		rm -rf usr/include
 	fi
 
@@ -735,23 +793,23 @@ toolchain_build() {
 	mkdir unicode
 	cp -R -p "${DARWIN_SOURCES_DIR}"/JavaScriptCore-*/icu/unicode/*.h unicode
 	
-	cd "$TOOLCHAIN/sys"
+	cd "$SYS_DIR"
 	ln -sf gcc/darwin/4.0/stdint.h usr/include
 	ln -sf libstdc++.6.dylib usr/lib/libstdc++.dylib
 
 	message_status "Applying patches..."
 
-	if [ ! -r "${HERE}/include.diff" ]; then
+	if [ ! -r "${HERE}/patches/include.diff" ]; then
 		error "Missing include.diff! This file is required to merge the OSX and iPhone SDKs."
 		exit 1
 	fi
 
-	# include.diff is a modified version the telesphoreo patches to support iPhone 3.0
+	# patches/include.diff is a modified version the telesphoreo patches to support iPhone 3.0
 	# Some patches could fail if you rerun (rebuild) ./toolchain.sh build
 
 	#wget -qO- http://svn.telesphoreo.org/trunk/tool/include.diff | patch -p3 
 	pushd "usr/include"
-	patch -p3 -l -N < "${HERE}/include.diff"
+	patch -p3 -l -N < "${HERE}/patches/include.diff"
 
 	#wget -qO arm/locks.h http://svn.telesphoreo.org/trunk/tool/patches/locks.h 
 	svn cat http://svn.telesphoreo.org/trunk/tool/patches/locks.h@679 > arm/locks.h
@@ -767,9 +825,18 @@ toolchain_build() {
 	message_status "Checking out iphone-dev repo..."
 	mkdir -p "${CSU_DIR}"
 	cd "${CSU_DIR}"
-	svn co http://iphone-dev.googlecode.com/svn/trunk/csu .
-	cp -R -p *.o "$TOOLCHAIN/sys/usr/lib"
-	cd "$TOOLCHAIN/sys/usr/lib"
+
+	if [ -d "${CSU_DIR}/.svn" ]; then
+		echo "csu seems to be checked out."
+		if confirm -N "checkout again?"; then
+			svn co http://iphone-dev.googlecode.com/svn/trunk/csu .
+		fi
+	else
+		svn co http://iphone-dev.googlecode.com/svn/trunk/csu .
+	fi
+		
+	cp -R -p *.o "$SYS_DIR/usr/lib"
+	cd "$SYS_DIR/usr/lib"
 	chmod 644 *.o
 	cp -R -pf crt1.o crt1.10.5.o
 	cp -R -pf dylib1.o dylib1.10.5.o
@@ -789,61 +856,69 @@ toolchain_build() {
 		popd
 	fi
 
-	message_status "Checking out odcctools..."
-	mkdir -p "${CCTOOLS_DIR}"
+	if [ ! -d "${CCTOOLS_DIR}/.svn" ] || \
+		([ -d "${CCTOOLS_DIR}/.svn" ] &&  confirm -N "odcctools checkout exists. Checkout again?"); then
 
-	# ATTENTION: need to install ia32-libs, multilibs
-	svn co -r287 http://iphone-dev.googlecode.com/svn/branches/odcctools-9.2-ld "${CCTOOLS_DIR}"
+		message_status "Checking out odcctools..."
+		mkdir -p "${CCTOOLS_DIR}"
 
-	# patch rc/cctools/ld64/src/Options.h (#include <cstring> #include <limits.h>)
-	cd "${CCTOOLS_DIR}"
-	patch -p0 < "$IPHONEDEV_DIR/ld64_options.patch"
+		# ATTENTION: need to install ia32-libs, multilibs
+		svn co -r287 http://iphone-dev.googlecode.com/svn/branches/odcctools-9.2-ld "${CCTOOLS_DIR}"
+
+		# patch src/cctools/ld64/src/Options.h (#include <cstring> #include <limits.h>)
+		cd "${CCTOOLS_DIR}"
+		patch -p0 < "$IPHONEDEV_DIR/patches/ld64_options.patch"
+
+		# This patch is recommended by Jason.lin to compile otool on cygwin without
+		# gobjc
+		patch -p0 < "$IPHONEDEV_DIR/patches/otool_without_gobjc.patch"
+	fi
 
 	message_status "Configuring cctools-iphone..."
-	mkdir -p "$TOOLCHAIN/pre"
-	mkdir -p "$TOOLCHAIN/bld/cctools-iphone"
-	cd "$TOOLCHAIN/bld/cctools-iphone"
+	mkdir -p "$PREFIX"
+	mkdir -p "$BUILD_DIR/cctools-iphone"
+	cd "$BUILD_DIR/cctools-iphone"
 
 	CFLAGS="-m32" LDFLAGS="-m32" "${CCTOOLS_DIR}"/configure \
 		--target="${TARGET}" \
-		--prefix="$TOOLCHAIN/pre" \
+		--prefix="$PREFIX" \
 		--enable-ld64
 
 	make clean > /dev/null
 
 	message_status "Building cctools-iphone..."
-	cecho bold "Build progress logged to: toolchain/bld/cctools-iphone/make.log"
+	cecho bold "Build progress logged to: $BUILD_DIR/cctools-iphone/make.log"
 	if ! ( make &>make.log && make install &>install.log ); then
 		error "Build & install failed. Check make.log and install.log"
 		exit 1
 	fi
 
 	# default linker is now ld64
-	mv "${TOOLCHAIN}/pre/bin/arm-apple-darwin9-ld" "${TOOLCHAIN}/pre/bin/arm-apple-darwin9-ld_classic"
-	ln -s "${TOOLCHAIN}/pre/bin/arm-apple-darwin9-ld64" "${TOOLCHAIN}/pre/bin/arm-apple-darwin9-ld"
+	mv "${PREFIX}/bin/arm-apple-darwin9-ld" "${PREFIX}/bin/arm-apple-darwin9-ld_classic"
+	ln -s "${PREFIX}/bin/arm-apple-darwin9-ld64" "${PREFIX}/bin/arm-apple-darwin9-ld"
 
 	message_status "Configuring gcc-4.2-iphone..."
-	mkdir -p "$TOOLCHAIN/bld/gcc-4.2-iphone"
-	cd "$TOOLCHAIN/bld/gcc-4.2-iphone"
+	mkdir -p "${BUILD_DIR}/gcc-4.2-iphone"
+	cd "${BUILD_DIR}/gcc-4.2-iphone"
 	"${GCC_DIR}"/configure \
 		--target="${TARGET}" \
-		--prefix="$TOOLCHAIN/pre" \
-		--with-sysroot="$TOOLCHAIN/sys" \
+		--prefix="$PREFIX" \
+		--with-sysroot="$SYS_DIR" \
 		--enable-languages=c,c++,objc,obj-c++ \
-		--with-as="$TOOLCHAIN"/pre/bin/"${TARGET}"-as \
-		--with-ld="$TOOLCHAIN"/pre/bin/"${TARGET}"-ld \
+		--with-as="$PREFIX"/bin/"${TARGET}"-as \
+		--with-ld="$PREFIX"/bin/"${TARGET}"-ld \
 		--enable-wchar_t=no \
 		--with-gxx-include-dir=/usr/include/c++/4.2.1
 	make clean > /dev/null
 	message_status "Building gcc-4.2-iphone..."
-	cecho bold "Build progress logged to: toolchain/bld/gcc-4.2-iphone/make.log"
+	cecho bold "Build progress logged to: $BUILD_DIR/gcc-4.2-iphone/make.log"
 	if ! ( make -j2 &>make.log && make install &>install.log ); then
 		error "Build & install failed. Check make.log and install.log"
 		exit 1
 	fi
 
-	mkdir -p "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pre)"
-	ln -sf "$TOOLCHAIN/pre" "$TOOLCHAIN/sys"/"$(dirname $TOOLCHAIN/pre)"
+	mkdir -p "$SYS_DIR"/"$(dirname $PREFIX)"
+	ln -sf "$PREFIX" "$SYS_DIR"/"$(dirname $PREFIX)"
 }
 
 class_dump() {
@@ -909,7 +984,6 @@ COMMAND
 	
 	message_status "Framework headers exported. Copying..."
 	scp -r root@$IPHONE_IP:/tmp/Frameworks  "${TMP_DIR}"
-	#yes n | cp -R -i "${TMP_DIR}"/Frameworks/* "${IPHONEDEV_DIR}/toolchain/sys/usr/include/"
 }
 
 check_environment() {
@@ -984,12 +1058,11 @@ case $1 in
 	build|rebuild)
 		check_environment
 		message_action "Building the toolchain..."
-		# This is more of a debugging tool at the moment
 		if [ "$1" == "rebuild" ]; then
-			rm -Rf "${IPHONEDEV_DIR}/toolchain/pre/"
-			rm -Rf "${IPHONEDEV_DIR}/toolchain/sys/"
-			rm -Rf "${IPHONEDEV_DIR}/toolchain/bld/"
-		fi
+			message_action "rebuilding..."
+			[ -d "${SYS_DIR}" ] && rm -Rf "${SYS_DIR}"
+			[ -d "${BUILD_DIR}" ] && rm -Rf "${BUILD_DIR}"
+		fi 
 		toolchain_build
 		message_action "It seems like the toolchain built!"
 		;;
@@ -1013,8 +1086,8 @@ case $1 in
 		rm -Rf "${SDKS_DIR}"
 		rm -Rf "${TOOLS_DIR}"
 		rm -Rf "${TMP_DIR}"
-		rm -Rf "${IPHONEDEV_DIR}/toolchain/src/"
-		rm -Rf "${IPHONEDEV_DIR}/toolchain/bld/"
+		rm -Rf "${SRC_DIR}"
+		rm -Rf "${BUILD_DIR}"
 		[ -r $IPHONE_SDK_DMG ] && confirm -N "Do you want me to remove the SDK dmg?" && rm "${IPHONE_SDK_DMG}"
 		if confirm -N "Do you want me to remove the firmware image(s)?"; then
 			for fw in $FW_DIR/*.ipsw; do rm $fw; done
