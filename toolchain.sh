@@ -25,7 +25,10 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 # What version of the toolchain are we building?
-TOOLCHAIN_VERSION="3.0"
+TOOLCHAIN_VERSION="3.1.2"
+
+#what device are we building for?
+DEVICE="iPhone_3G"
 
 # Everything is built relative to IPHONEDEV_DIR
 IPHONEDEV_DIR="`pwd`"
@@ -121,12 +124,12 @@ TMP_DIR="${IPHONEDEV_DIR}/tmp"
 MNT_DIR="${FILES_DIR}/mnt"
 FW_DIR="${FILES_DIR}/firmware"
 
-IPHONE_SDK="iphone_sdk_*_final.dmg"
+IPHONE_SDK="iphone_sdk_*.dmg"
 [ -z $IPHONE_SDK_DMG ] && IPHONE_SDK_DMG="${FILES_DIR}/${IPHONE_SDK}"
 
 # URLS
 DMG2IMG="http://vu1tur.eu.org/tools/download.pl?dmg2img-1.6.1.tar.gz"
-IPHONEWIKI_KEY_URL="http://www.theiphonewiki.com/wiki/index.php?title=VFDecrypt_Keys:_3.x"
+IPHONEWIKI_KEY_URL="http://www.theiphonewiki.com/wiki/index.php?title=Firmware"
 AID_LOGIN="https://daw.apple.com/cgi-bin/WebObjects/DSAuthWeb.woa/wa/login?appIdKey=D236F0C410E985A7BB866A960326865E7F924EB042FA9A161F6A628F0291F620&path=/darwinsource/tarballs/apsl/cctools-667.8.0.tar.gz"
 DARWIN_SOURCES_DIR="$FILES_DIR/darwin_sources"
 
@@ -351,7 +354,7 @@ toolchain_extract_headers() {
 
 	# Check which PACKAGE we have to extract. Apple does have different
 	# namings for it, depending on the SDK version. 
-	if [ "${TOOLCHAIN_VERSION}" == "3.0" ] ; then
+	if [ "${TOOLCHAIN_VERSION}" == "3.1.2" ] ; then
 		PACKAGE="iPhoneSDKHeadersAndLibs.pkg"
 	elif [[ "`vercmp $SDK_VERSION $TOOLCHAIN_VERSION`" == "newer" ]]; then
 		PACKAGE="iPhoneSDK`echo $TOOLCHAIN_VERSION | sed 's/\./_/g' `.pkg"
@@ -518,15 +521,17 @@ toolchain_extract_firmware() {
 		echo "We need the decryption key for `basename $FW_RESTORE_SYSTEMDISK`."
 		echo "I'm going to try to fetch it from $IPHONEWIKI_KEY_URL...."
  
-		DECRYPTION_KEY_SYSTEM=$( wget --quiet -O - $IPHONEWIKI_KEY_URL | awk '\
-			BEGIN { IGNORECASE = 1; }
-			/name="3.0_.28Build_7A341.29"/               { found_3_0 = 1;   }
-			/name="Root_Filesystem"/ && found_3_0        { found_root = 1;  }
-			/title="'${HW_BOARD_CONFIG}'"/ && found_root { found_phone = 1; }
-			/.*<pre>.*$/ && found_phone { 
-				sub(/.*<pre>/,"", $0); 
-				print toupper($0); exit; }
+		IPHONEWIKI_KEY_URL=$( wget --quiet -O - $IPHONEWIKI_KEY_URL | awk '
+		    BEGIN { IGNORECASE = 1; }
+	    	/name="'${DEVICE}'/  { found_phone=1; } 
+			/.*'${TOOLCHAIN_VERSION}'.*/ && found_phone { found_firmware=1; }
+	     	/.*href=.*/ && found_firmware { while(sub(/href=|"/,"", $3));; print $3; exit;}  
 		')
+		
+		DECRYPTION_KEY_SYSTEM=`wget --quiet -O - "http://www.theiphonewiki.com"$IPHONEWIKI_KEY_URL | awk '
+ 		    BEGIN { IGNORECASE = 1; }
+			/.*VFDecrypt.*/  { print $3;}  
+		'`
 
 		if [ ! "$DECRYPTION_KEY_SYSTEM" ] ; then
 			error "Sorry, no decryption key for system partition found!"
@@ -834,8 +839,9 @@ toolchain_build() {
 	else
 		svn co http://iphone-dev.googlecode.com/svn/trunk/csu .
 	fi
-		
+
 	cp -R -p *.o "$SYS_DIR/usr/lib"
+	cp -H -p "$IPHONE_SDK/usr/lib/libc.dylib" "$SYS_DIR/usr/lib/"
 	cd "$SYS_DIR/usr/lib"
 	chmod 644 *.o
 	cp -R -pf crt1.o crt1.10.5.o
