@@ -25,7 +25,7 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 # What version of the toolchain are we building?
-TOOLCHAIN_VERSION="3.1.2"
+TOOLCHAIN_VERSION="3.1.3"
 
 #what device are we building for?
 DEVICE="iPhone_3G"
@@ -333,7 +333,7 @@ toolchain_extract_headers() {
 	# Check the version of the SDK
 	# Apple seems to apply a policy of rounding off the last component of the long version number
 	# so we'll do the same here
-	SDK_VERSION=$(plist_key CFBundleShortVersionString "/" "${MNT_DIR}/iPhone SDK.mpkg/Contents/version.plist" | awk '
+	SDK_VERSION=$(plist_key CFBundleShortVersionString "/" "${MNT_DIR}/iPhone SDK and Tools for Snow Leopard.mpkg/Contents/version.plist" | awk '
 		BEGIN { FS="." }
 		{
 			if(substr($4,1,1) >= 5)
@@ -354,7 +354,7 @@ toolchain_extract_headers() {
 
 	# Check which PACKAGE we have to extract. Apple does have different
 	# namings for it, depending on the SDK version. 
-	if [ "${TOOLCHAIN_VERSION}" == "3.1.2" ] ; then
+	if [ "${TOOLCHAIN_VERSION}" == "3.1.3" ] ; then
 		PACKAGE="iPhoneSDKHeadersAndLibs.pkg"
 	elif [[ "`vercmp $SDK_VERSION $TOOLCHAIN_VERSION`" == "newer" ]]; then
 		PACKAGE="iPhoneSDK`echo $TOOLCHAIN_VERSION | sed 's/\./_/g' `.pkg"
@@ -462,7 +462,7 @@ toolchain_extract_firmware() {
 	# automatically download the firmware with wget above. Is it a problem
 	# of wget or does apple have any checks? Maybe we should use wget
 	# with an alternative user agent
-
+	
 	sha1cmd=`which sha1sum`
 	if [ "x$sha1cmd" != "x" ] ; then
 		ff=`basename ${FW_FILE}`
@@ -524,10 +524,10 @@ toolchain_extract_firmware() {
 		IPHONEWIKI_KEY_URL=$( wget --quiet -O - $IPHONEWIKI_KEY_URL | awk '
 		    BEGIN { IGNORECASE = 1; }
 	    	/name="'${DEVICE}'/  { found_phone=1; } 
-			/.*'${TOOLCHAIN_VERSION}'.*/ && found_phone { found_firmware=1; }
+			/.*'${FW_BUILD_VERSION}'.*/ && found_phone { found_firmware=1; }
 	     	/.*href=.*/ && found_firmware { while(sub(/href=|"/,"", $3));; print $3; exit;}  
 		')
-		
+
 		DECRYPTION_KEY_SYSTEM=`wget --quiet -O - "http://www.theiphonewiki.com"$IPHONEWIKI_KEY_URL | awk '
  		    BEGIN { IGNORECASE = 1; }
 			/.*VFDecrypt.*/  { print $3;}  
@@ -840,6 +840,8 @@ toolchain_build() {
 		svn co http://iphone-dev.googlecode.com/svn/trunk/csu .
 	fi
 
+	cp -R -p "${IPHONE_SDK}"/System "$SYS_DIR"
+        cp -R -p "${IPHONE_SDK}"/usr/lib "$SYS_DIR"/usr/
 	cp -R -p *.o "$SYS_DIR/usr/lib"
 	cp -H -p "$IPHONE_SDK/usr/lib/libc.dylib" "$SYS_DIR/usr/lib/"
 	cd "$SYS_DIR/usr/lib"
