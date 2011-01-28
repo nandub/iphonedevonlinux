@@ -6,11 +6,15 @@ Checkout and get the files
 
 First create a project directory and check out the latest copy of the toolchain builder. For Example:
 
-mkdir -p ~/Projects/iphone/
-cd ~/Projects/iphone/toolchain
-git clone git://github.com/nandub/iphonedevonlinux.git
+    mkdir -p ~/Projects/iphone/
+    cd ~/Projects/iphone/toolchain
+    git clone git://github.com/nandub/iphonedevonlinux.git
 
-You will need to download the iPhone SDK 3.1.3 from Apple, which can be found here: http://developer.apple.com/iphone/download.action?path=/iphone/iphone_sdk_3.1.3__final/iphone_sdk_3.1.3_with_xcode_3.2.1__snow_leopard__10m2003a.dmg. You can also choose to download the 3.1.3 firmware from Apple at this stage. If you do not, the script will download the firmware automatically.
+You will need to download the iPhone SDK 3.1.3 from Apple, which can be found here: 
+
+    http://developer.apple.com/iphone/download.action?path=/iphone/iphone_sdk_3.1.3__final/iphone_sdk_3.1.3_with_xcode_3.2.1__snow_leopard__10m2003a.dmg
+
+You can also choose to download the 3.1.3 firmware from Apple at this stage. If you do not, the script will download the firmware automatically.
 
 You can now copy the SDK and Firmware (if you have it) to the toolchain builder's directory:
 
@@ -51,6 +55,15 @@ Here we provide a list of packages for Debian/Ubuntu
       libxml2-dev \
       zlib1g-dev \
       xar
+
+NOTE: if your linux distribution does not have "xar" available, you can download the source and build it yourself.
+
+    wget http://xar.googlecode.com/files/xar-1.5.2.tar.gz
+    tar zxvf xar-1.5.2.tar.gz
+    cd xar-1.5.2
+    ./configure
+    make
+    sudo make install
 
 If you are on 64 bit please install:
 
