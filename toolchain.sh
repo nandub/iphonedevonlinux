@@ -880,6 +880,9 @@ toolchain_build() {
 		# This patch is recommended by Jason.lin to compile otool on cygwin without
 		# gobjc
 		patch -p0 < "$IPHONEDEV_DIR/patches/otool_without_gobjc.patch"
+		
+		# Patch missing includes
+		patch -p0 < "$IPHONEDEV_DIR/patches/ld64_missing_includes.patch"
 	fi
 
 	message_status "Configuring cctools-iphone..."

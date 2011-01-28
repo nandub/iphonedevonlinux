@@ -1,0 +1,53 @@
+Index: ld64/src/MachOReaderDylib.hpp
+===================================================================
+--- ld64/src/MachOReaderDylib.hpp	(revision 287)
++++ ld64/src/MachOReaderDylib.hpp	(working copy)
+@@ -25,6 +25,8 @@
+ #ifndef __OBJECT_FILE_DYLIB_MACH_O__
+ #define __OBJECT_FILE_DYLIB_MACH_O__
+ 
++#include <stdio.h>
++#include <stdlib.h> 
+ #include <stdint.h>
+ #include <math.h>
+ #include <unistd.h>
+Index: ld64/src/MachOReaderRelocatable.hpp
+===================================================================
+--- ld64/src/MachOReaderRelocatable.hpp	(revision 287)
++++ ld64/src/MachOReaderRelocatable.hpp	(working copy)
+@@ -25,6 +25,8 @@
+ #ifndef __OBJECT_FILE_MACH_O__
+ #define __OBJECT_FILE_MACH_O__
+ 
++#include <stdio.h>
++#include <stdlib.h> 
+ #include <stdint.h>
+ #include <math.h>
+ #include <unistd.h>
+Index: ld64/src/Options.cpp
+===================================================================
+--- ld64/src/Options.cpp	(revision 287)
++++ ld64/src/Options.cpp	(working copy)
+@@ -22,7 +22,8 @@
+  * @APPLE_LICENSE_HEADER_END@
+  */
+ 
+-
++#include <stdio.h>
++#include <stdlib.h> 
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <mach/vm_prot.h>
+Index: ld64/src/MachOWriterExecutable.hpp
+===================================================================
+--- ld64/src/MachOWriterExecutable.hpp	(revision 287)
++++ ld64/src/MachOWriterExecutable.hpp	(working copy)
+@@ -25,6 +25,8 @@
+ #ifndef __EXECUTABLE_MACH_O__
+ #define __EXECUTABLE_MACH_O__
+ 
++#include <stdio.h>
++#include <stdlib.h> 
+ #include <stdint.h>
+ #include <stddef.h>
+ #include <fcntl.h>
